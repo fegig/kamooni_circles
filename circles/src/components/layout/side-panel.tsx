@@ -1,0 +1,211 @@
+"use client";
+
+import React, { useCallback, useEffect, useState } from "react";
+import { useAtom } from "jotai";
+import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
+import { useIsMobile } from "@/components/utils/use-is-mobile";
+import {
+    contentPreviewAtom,
+    mapOpenAtom,
+    userToolboxDataAtom,
+    sidePanelContentVisibleAtom,
+    sidePanelModeAtom,
+    sidePanelSearchStateAtom,
+    feedPanelDockedAtom,
+} from "@/lib/data/atoms";
+import ContentPreview from "./content-preview";
+import { UserToolbox } from "./user-toolbox";
+import { LOG_LEVEL_TRACE, logLevel } from "@/lib/data/constants";
+import ActivityPanel from "./activity-panel";
+import EventsPanel from "./events-panel";
+import SearchResultsPanel from "./search-results-panel";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
+
+export const SidePanel: React.FC = () => {
+    const [contentPreview, setContentPreview] = useAtom(contentPreviewAtom);
+    const [userToolbox, setUserToolbox] = useAtom(userToolboxDataAtom);
+    const [mapOpen] = useAtom(mapOpenAtom);
+    const isMobile = useIsMobile();
+    const [sidePanelContentVisible, setSidePanelContentVisible] = useAtom(sidePanelContentVisibleAtom);
+    const [sidePanelMode, setSidePanelMode] = useAtom(sidePanelModeAtom);
+    const [feedPanelDocked, setFeedPanelDocked] = useAtom(feedPanelDockedAtom);
+    const [searchPanelState] = useAtom(sidePanelSearchStateAtom);
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
+    const router = useRouter();
+
+    useEffect(() => {
+        if (logLevel >= LOG_LEVEL_TRACE) {
+            console.log("useEffect.SidePanel.1");
+        }
+    }, []);
+
+    // Sync panel open state with URL on desktop for /explore
+    useEffect(() => {
+        if (isMobile) return;
+        if (pathname !== "/explore") return;
+        const panel = searchParams.get("panel");
+        if (panel === "activity" || panel === "search" || panel === "events") {
+            setSidePanelMode(panel as any);
+        }
+        // If panel param is absent, don't force-close — allow programmatic open (e.g., search) to persist.
+        // Navigation to Explore button will explicitly setSidePanelMode("none").
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isMobile, pathname, searchParams]);
+
+    // Auto-close left side panel when navigating away from /explore to avoid overlapping content
+    useEffect(() => {
+        if (!isMobile && pathname !== "/explore" && sidePanelMode !== "none") {
+            setSidePanelMode("none");
+        }
+    }, [isMobile, pathname, sidePanelMode, setSidePanelMode]);
+
+    const closeContentPreview = () => {
+        setContentPreview(undefined);
+        setFeedPanelDocked(false);
+    };
+
+    const closeUsertoolbox = () => {
+        setUserToolbox(undefined);
+    };
+
+    const handleClosePanel = useCallback(() => {
+        setSidePanelMode("none");
+        setContentPreview(undefined);
+        setUserToolbox(undefined);
+        setFeedPanelDocked(false);
+
+        if (!isMobile && pathname === "/explore") {
+            const params = new URLSearchParams(searchParams.toString());
+            if (params.has("panel")) {
+                params.delete("panel");
+            }
+            const next = params.toString();
+            router.replace(next ? `/explore?${next}` : "/explore");
+        }
+    }, [isMobile, pathname, router, searchParams, setContentPreview, setFeedPanelDocked, setSidePanelMode, setUserToolbox]);
+
+    useEffect(() => {
+        if (contentPreview) {
+            setSidePanelContentVisible("content");
+        } else if (!userToolbox) {
+            setSidePanelContentVisible(undefined);
+        }
+    }, [contentPreview]);
+
+    useEffect(() => {
+        if (userToolbox) {
+            setSidePanelContentVisible("toolbox");
+        } else if (!contentPreview) {
+            setSidePanelContentVisible(undefined);
+        }
+    }, [userToolbox]);
+
+    useEffect(() => {
+        if (sidePanelMode !== "activity") {
+            setFeedPanelDocked(false);
+        }
+    }, [sidePanelMode, setFeedPanelDocked]);
+
+    if (isMobile && sidePanelContentVisible !== "toolbox") {
+        return null;
+    }
+
+    const isFullWidthActivity =
+        !isMobile && pathname === "/explore" && sidePanelMode === "activity" && !feedPanelDocked;
+
+    return (
+        <>
+            {/* Left side panel (desktop only) */}
+            <AnimatePresence>
+                {!isMobile && pathname === "/explore" && sidePanelMode !== "none" && (
+                    <motion.div
+                        key={sidePanelMode}
+                        className={`fixed left-[72px] top-0 z-[200] flex h-[100vh] flex-shrink-0 flex-col bg-white ${
+                            isFullWidthActivity ? "" : "md:rounded-r-xl md:border-r md:border-gray-200/50 md:shadow-xl"
+                        }`}
+                        style={{ width: isFullWidthActivity ? "calc(100vw - 72px)" : 420 }}
+                        initial={{ x: "-100%" }}
+                        animate={{ x: 0 }}
+                        exit={{ x: "-100%" }}
+                        transition={{ duration: 0.35, ease: "easeInOut" }}
+                    >
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-2 top-2 z-[210] rounded-full bg-gray-100"
+                            onClick={handleClosePanel}
+                            aria-label="Close panel"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </Button>
+
+                        <div className="flex h-full w-full flex-col overflow-hidden">
+                            <div className="min-h-0 flex-1">
+                                {sidePanelMode === "activity" ? (
+                                    <ActivityPanel mode={isFullWidthActivity ? "full" : "panel"} />
+                                ) : sidePanelMode === "events" ? (
+                                    <EventsPanel />
+                                ) : (
+                                    <SearchResultsPanel />
+                                )}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Existing right-floating overlays remain unchanged */}
+            <AnimatePresence>
+                {contentPreview && (
+                    <motion.div
+                        initial={{ x: "110%" }}
+                        animate={{ x: 0 }}
+                        exit={{ x: "110%" }}
+                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                        style={{ zIndex: sidePanelContentVisible === "content" ? 50 : 40 }}
+                        className={`fixed bottom-4 z-40 w-full overflow-hidden bg-white shadow-lg md:w-[400px] md:rounded-[15px] ${
+                            isMobile ? "right-0 top-0" : "right-4 top-[64px]"
+                        }`}
+                    >
+                        <ContentPreview />
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`absolute ${isMobile ? "right-6 top-[68px]" : "right-2 top-[48px]"} rounded-full bg-gray-100 md:top-2`}
+                            onClick={closeContentPreview}
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </motion.div>
+                )}
+                {userToolbox && (
+                    <motion.div
+                        initial={{ x: "110%" }}
+                        animate={{ x: 0 }}
+                        exit={{ x: "110%" }}
+                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                        style={{ zIndex: sidePanelContentVisible === "toolbox" ? 50 : 40 }}
+                        className={`fixed bottom-4 z-40 w-full overflow-hidden bg-white shadow-lg md:w-[400px] md:rounded-[15px] ${
+                            isMobile ? "right-0 top-0" : "right-4 top-[64px]"
+                        }`}
+                    >
+                        <UserToolbox />
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`absolute ${isMobile ? "right-6 top-[68px]" : "right-2 top-[48px]"} rounded-full bg-gray-100 md:top-2`}
+                            onClick={closeUsertoolbox}
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </>
+    );
+};
+
+export default ContentPreview;

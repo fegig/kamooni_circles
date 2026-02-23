@@ -1,0 +1,1395 @@
+//chat-room.tsx - chat room component, shows chat messages and input
+"use client";
+
+import { Dispatch, KeyboardEvent, SetStateAction, useCallback, useMemo, useTransition } from "react";
+import { Circle, ChatMessage, MatrixUserCache, ChatRoomDisplay, ReactionAggregation } from "@/models/models";
+import { mapOpenAtom, matrixUserCacheAtom, replyToMessageAtom, roomMessagesAtom, userAtom, unreadCountsAtom, lastReadTimestampsAtom } from "@/lib/data/atoms";
+import { useAtom } from "jotai";
+import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/components/utils/use-is-mobile";
+import { CirclePicture } from "../circles/circle-picture";
+import RichText from "../feeds/RichText";
+import { Mention, MentionsInput } from "react-mentions";
+import { defaultMentionsInputStyle, defaultMentionStyle, handleMentionQuery } from "../feeds/post-list";
+import { sendRoomMessage, sendReaction, redactRoomMessage } from "@/lib/data/client-matrix";
+import { useIsCompact } from "@/components/utils/use-is-compact";
+import { fetchMatrixUsers } from "./actions";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { IoArrowBack, IoClose, IoSend, IoAddCircleOutline, IoArrowDown, IoAttach, IoDocumentText, IoTimeOutline, IoWarningOutline } from "react-icons/io5";
+import { MdReply } from "react-icons/md";
+import { BsEmojiSmile } from "react-icons/bs";
+import { GrEdit, GrTrash } from "react-icons/gr";
+import { LOG_LEVEL_TRACE, logLevel } from "@/lib/data/constants";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { generateColorFromString } from "@/lib/utils/color";
+import { EmojiClickData } from "emoji-picker-react";
+import LazyEmojiPicker from "./LazyEmojiPicker";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+export const renderCircleSuggestion = (
+    suggestion: any,
+    search: string,
+    highlightedDisplay: React.ReactNode,
+    index: number,
+    focused: boolean,
+) => (
+    <div className="flex items-center p-2">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+            src={suggestion.picture || "/default-profile.png"}
+            alt={suggestion.display}
+            className="mr-2 h-6 w-6 rounded-full"
+        />
+        <span>{highlightedDisplay}</span>
+    </div>
+);
+
+const renderChatMessage = (message: ChatMessage, preview?: boolean) => {
+    if (preview) {
+        return (
+            <span>
+                <b>{message.author.name}: </b>
+                {message?.content?.body as string}
+            </span>
+        );
+    } else {
+        const body = (message?.content?.body as string) || "";
+        const isReply = body.includes("\n\n") && body.startsWith("> ");
+        const replyText = isReply ? body.substring(body.indexOf("\n\n") + 2) : body;
+        const originalMessage = isReply ? body.substring(body.indexOf("> ") + 2, body.indexOf("\n\n")) : "";
+        const originalAuthor = isReply ? originalMessage.substring(1, originalMessage.indexOf(">")) : "";
+        const originalAuthorColor = generateColorFromString(originalAuthor);
+
+        return (
+            <div className="max-w-full overflow-hidden">
+                {isReply && (
+                    <div className="mb-2 rounded-md border-l-4 border-gray-400 bg-[#f3f3f3] p-2 pl-2">
+                        <div
+                            className="text-xs font-semibold"
+                            style={{ color: originalAuthorColor }}
+                        >
+                            {originalAuthor}
+                        </div>
+                        <p className="truncate text-sm text-gray-600">
+                            {originalMessage.substring(originalMessage.indexOf(">") + 2)}
+                        </p>
+                    </div>
+                )}
+                <RichText content={replyText} />
+            </div>
+        );
+    }
+};
+
+// Renderer for different message types
+export const MessageRenderer: React.FC<{ message: ChatMessage; preview?: boolean }> = ({ message, preview }) => {
+    const [user] = useAtom(userAtom);
+    const displayName = message.author?.name || message.createdBy;
+    switch (message.type) {
+        case "m.room.message":
+            if (!Object.keys(message.content).length) {
+                return <span className="italic text-gray-500">Message deleted</span>;
+            }
+            const msgtype = (message.content as any).msgtype;
+            if (msgtype === "m.image") {
+                const mxcUrl = (message.content as any).url;
+                if (mxcUrl && typeof mxcUrl === "string") {
+                     // Convert MXC URI to HTTP URL using authenticated endpoint
+                     // Format: mxc://<server-name>/<media-id> -> http://localhost/_matrix/client/v1/media/download/<server-name>/<media-id>?access_token=...
+                     const mediaId = mxcUrl.replace("mxc://", "");
+                     // Construct URL - use port 80 for localhost to go through nginx
+                     const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+                     const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+                     const port = hostname === 'localhost' ? ':80' : '';
+                     const accessToken = user?.matrixAccessToken || '';
+                     const imageUrl = `${protocol}://${hostname}${port}/_matrix/client/v1/media/download/${mediaId}?access_token=${encodeURIComponent(accessToken)}`;
+                     
+                     console.log(`🖼️ [Chat] Image URL: ${imageUrl.replace(accessToken, 'REDACTED')} (MediaID: ${mediaId})`);
+                     
+                     return (
+                         <div className="max-w-xs sm:max-w-sm">
+                             {/* eslint-disable-next-line @next/next/no-img-element */}
+                             <img 
+                                 src={imageUrl} 
+                                 alt={(message.content as any).body || "Image attachment"} 
+                                 className="rounded-lg object-contain max-h-60 w-full cursor-pointer hover:opacity-90"
+                                 onClick={() => window.open(imageUrl, "_blank")}
+                             />
+                         </div>
+                     );
+                }
+            } else if (msgtype === "m.file") {
+                const mxcUrl = (message.content as any).url;
+                if (mxcUrl && typeof mxcUrl === "string") {
+                     const mediaId = mxcUrl.replace("mxc://", "");
+                     const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+                     const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+                     const port = hostname === 'localhost' ? ':80' : '';
+                     const accessToken = user?.matrixAccessToken || '';
+                     const fileUrl = `${protocol}://${hostname}${port}/_matrix/client/v1/media/download/${mediaId}?access_token=${encodeURIComponent(accessToken)}`;
+                     const fileName = (message.content as any).body || "File attachment";
+                     const fileSize = (message.content as any).info?.size;
+                     
+                     return (
+                         <a 
+                             href={fileUrl} 
+                             target="_blank" 
+                             rel="noopener noreferrer"
+                             className="flex items-center gap-2 rounded-lg bg-gray-100 p-3 hover:bg-gray-200 transition-colors"
+                         >
+                             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                                 <IoDocumentText className="h-6 w-6" />
+                             </div>
+                             <div className="flex flex-col overflow-hidden">
+                                 <span className="truncate font-medium text-gray-700">{fileName}</span>
+                                 {fileSize && (
+                                     <span className="text-xs text-gray-500">
+                                         {(fileSize / 1024).toFixed(1)} KB
+                                     </span>
+                                 )}
+                             </div>
+                         </a>
+                     );
+                }
+            }
+            
+            // Check if message has been edited
+            const isEdited = (message.content as any)["m.new_content"] !== undefined;
+            
+            return (
+                <span>
+                    {renderChatMessage(message, preview)}
+                    {isEdited && <span className="ml-1 text-xs text-gray-500 italic">(edited)</span>}
+                </span>
+            );
+
+        case "m.room.member": {
+            const membership = (message.content as { membership: string }).membership;
+            const action = membership === "join" ? "has joined" : membership === "leave" ? "has left" : membership;
+            return renderSystemMessage(`${displayName} ${action} the room.`);
+        }
+
+        case "m.room.name":
+        case "m.room.topic":
+        case "m.room.history_visibility":
+        case "m.room.join_rules":
+        case "m.room.canonical_alias":
+        case "m.room.power_levels":
+        case "m.room.create":
+            return null; // Hide these system messages
+
+        default:
+            return null; // Hide unknown events as well
+    }
+};
+
+const renderSystemMessage = (content: string) => content;
+
+type ChatMessagesProps = {
+    messages: ChatMessage[];
+    messagesEndRef?: React.RefObject<HTMLDivElement | null>;
+    onMessagesRendered?: () => void;
+    handleDelete: (message: ChatMessage) => Promise<void>;
+    handleEdit: (message: ChatMessage) => void;
+};
+
+const sameAuthor = (message1: ChatMessage, message2: ChatMessage) => {
+    if (!message1?.author || !message2?.author) return false;
+    if (message1.type !== "m.room.message" || message2.type !== "m.room.message") return false;
+    return message1.author._id === message2.author._id;
+};
+
+const ChatMessages: React.FC<ChatMessagesProps> = ({ messages, messagesEndRef, onMessagesRendered, handleDelete, handleEdit }) => {
+    const [user] = useAtom(userAtom);
+    const [, setReplyToMessage] = useAtom(replyToMessageAtom);
+    const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
+    const [pickerOpenForMessage, setPickerOpenForMessage] = useState<string | null>(null);
+    const [, setRoomMessages] = useAtom(roomMessagesAtom);
+    const isMobile = useIsMobile();
+
+    const handleReply = (message: ChatMessage) => {
+        setReplyToMessage(message);
+    };
+
+    const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+
+    const handleReaction = async (message: ChatMessage, emoji: string) => {
+        if (!user?.matrixAccessToken || !user?.matrixUrl || !user.fullMatrixName) return;
+
+        const anyExistingReaction = Object.entries(message.reactions || {})
+            .map(([key, reactions]) => {
+                const userReaction = reactions.find((r) => r.sender === user.fullMatrixName);
+                return userReaction ? { ...userReaction, key } : null;
+            })
+            .find((r) => r !== null);
+
+        // Optimistic UI Update
+        setRoomMessages((prev) => {
+            const newRooms = { ...prev };
+            const roomMessages = [...(newRooms[message.roomId] || [])];
+            const messageIndex = roomMessages.findIndex((m) => m.id === message.id);
+            if (messageIndex === -1) return prev;
+
+            const updatedMessage = { ...roomMessages[messageIndex] };
+            const reactions = { ...(updatedMessage.reactions || {}) };
+
+            // Remove any existing reaction from the user
+            if (anyExistingReaction) {
+                reactions[anyExistingReaction.key] = reactions[anyExistingReaction.key].filter(
+                    (r) => r.sender !== user.fullMatrixName,
+                );
+                if (reactions[anyExistingReaction.key].length === 0) {
+                    delete reactions[anyExistingReaction.key];
+                }
+            }
+
+            // Add the new reaction, unless it was the same as the one removed
+            if (!anyExistingReaction || anyExistingReaction.key !== emoji) {
+                const newReaction: ReactionAggregation = {
+                    sender: user.fullMatrixName!,
+                    eventId: `temp-id-${Date.now()}`,
+                };
+                reactions[emoji] = [...(reactions[emoji] || []), newReaction];
+            }
+
+            updatedMessage.reactions = reactions;
+            roomMessages[messageIndex] = updatedMessage;
+            newRooms[message.roomId] = roomMessages;
+            return newRooms;
+        });
+
+        try {
+            // If there was an old reaction, redact it first
+            if (anyExistingReaction) {
+                await redactRoomMessage(
+                    user.matrixAccessToken,
+                    user.matrixUrl,
+                    message.roomId,
+                    anyExistingReaction.eventId,
+                );
+            }
+            // If the new reaction is different from the old one, send it
+            if (!anyExistingReaction || anyExistingReaction.key !== emoji) {
+                await sendReaction(user.matrixAccessToken, user.matrixUrl, message.roomId, message.id, emoji);
+            }
+        } catch (error) {
+            console.error("Failed to update reaction:", error);
+            // On failure, the state will be corrected by the next sync
+        }
+    };
+
+    const handleTouchStart = (message: ChatMessage) => {
+        if (isMobile) {
+            longPressTimer.current = setTimeout(() => {
+                setHoveredMessageId(message.id);
+            }, 500); // 500ms for a long press
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+        }
+    };
+    const isSameDay = (date1: Date, date2: Date) => {
+        return (
+            date1.getFullYear() === date2.getFullYear() &&
+            date1.getMonth() === date2.getMonth() &&
+            date1.getDate() === date2.getDate()
+        );
+    };
+
+    useEffect(() => {
+        // Notify the parent once messages are rendered
+        if (onMessagesRendered) {
+            onMessagesRendered();
+        }
+    }, [messages, onMessagesRendered]);
+
+    const formatChatDate = (chatDate: Date) => {
+        const now = new Date();
+
+        if (isSameDay(chatDate, now)) {
+            return chatDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        } else {
+            return (
+                chatDate.toLocaleDateString() +
+                " " +
+                chatDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            );
+        }
+    };
+
+    const orderedMessages = [...messages]
+        .filter((message) => message.type === "m.room.message" || message.type === "m.room.member")
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    return (
+        <div>
+            {orderedMessages.reduce<React.ReactNode[]>((acc, message, index) => {
+                const isSystemMessage = message.type !== "m.room.message";
+                const isNewDate =
+                    index === 0 ||
+                    !isSameDay(new Date(message.createdAt), new Date(orderedMessages[index - 1].createdAt));
+                const isNewAuthor = index === 0 || !sameAuthor(orderedMessages[index - 1], message);
+                const isFirstInChain = isNewDate || isNewAuthor;
+                const isLastInChain =
+                    index === orderedMessages.length - 1 ||
+                    !sameAuthor(orderedMessages[index + 1], message) ||
+                    !isSameDay(new Date(orderedMessages[index + 1].createdAt), new Date(message.createdAt));
+
+                if (isNewDate) {
+                    acc.push(
+                        <div key={`date-${message.createdAt}`} className="my-2 mt-4 text-center text-sm text-gray-500">
+                            <span className="rounded-full bg-gray-200 px-2 py-1 shadow-md">
+                                {new Date(message.createdAt).toDateString()}
+                            </span>
+                        </div>,
+                    );
+                }
+                const borderRadiusClass = `${isFirstInChain ? "rounded-t-lg" : ""} ${
+                    isLastInChain ? "rounded-b-lg" : ""
+                } ${!isFirstInChain && !isLastInChain ? "rounded-none" : ""}`;
+                const isOwnMessage = message.createdBy === user?.fullMatrixName;
+                const canEditMessage = isOwnMessage && !message.status;
+                const canDeleteMessage = isOwnMessage && message.status !== "pending";
+                const bubbleStatusClasses =
+                    message.status === "pending"
+                        ? "opacity-70"
+                        : message.status === "failed"
+                        ? "border border-red-200"
+                        : "";
+
+                if (isSystemMessage) {
+                    acc.push(
+                        <div key={message.id} className="my-2 mt-4 text-center text-sm text-gray-500">
+                            <span className="rounded-full bg-gray-200 px-2 py-1 shadow-md">
+                                <MessageRenderer message={message} />
+                            </span>
+                        </div>,
+                    );
+                } else {
+                    acc.push(
+                        <div
+                            key={message.id}
+                            className={`group relative mb-1 flex gap-4 ${isFirstInChain ? "mt-4" : "mt-1"} ${hoveredMessageId === message.id ? "z-10" : ""}`}
+                            onMouseEnter={() => !isMobile && setHoveredMessageId(message.id)}
+                            onMouseLeave={() => !isMobile && setHoveredMessageId(null)}
+                            onTouchStart={() => handleTouchStart(message)}
+                            onTouchEnd={handleTouchEnd}
+                        >
+                            {isFirstInChain ? (
+                                <CirclePicture
+                                    circle={message.author!}
+                                    size="40px"
+                                    className="pt-2"
+                                    openPreview={true}
+                                />
+                            ) : (
+                                <div className="h-10 w-10 flex-shrink-0"></div>
+                            )}
+
+                            <div className="relative flex min-w-[100px] max-w-full flex-col overflow-hidden">
+                                <div className={`bg-white p-2 pr-4 shadow-md ${borderRadiusClass} ${bubbleStatusClasses}`}>
+                                    {isFirstInChain && (
+                                        <div
+                                            className="text-xs font-semibold"
+                                            style={{ color: generateColorFromString(message.author.name || "") }}
+                                        >
+                                            {message.author.name}
+                                        </div>
+                                        )}
+                                    <MessageRenderer message={message} />
+                                    {message.reactions && Object.keys(message.reactions).length > 0 && (
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {Object.entries(message.reactions).map(([reaction, reactions]) => (
+                                                <div
+                                                    key={reaction}
+                                                    className={`flex items-center rounded-full border bg-gray-100 px-2 py-0.5 text-xs ${
+                                                        reactions.some((r) => r.sender === user?.fullMatrixName)
+                                                            ? "border-blue-500"
+                                                            : "border-gray-300"
+                                                    }`}
+                                                    onClick={() => handleReaction(message, reaction)}
+                                                >
+                                                    <span>{reaction}</span>
+                                                    <span className="ml-1 text-gray-600">{reactions.length}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                {isLastInChain && (
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                        <span>{formatChatDate(new Date(message.createdAt))}</span>
+                                        {isOwnMessage && message.status === "pending" && (
+                                            <span className="flex items-center gap-1 text-blue-500">
+                                                <IoTimeOutline className="h-3 w-3" />
+                                                Sending…
+                                            </span>
+                                        )}
+                                        {isOwnMessage && message.status === "failed" && (
+                                            <span className="flex items-center gap-1 text-red-500">
+                                                <IoWarningOutline className="h-3 w-3" />
+                                                {message.errorMessage || "Failed to send"}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {(hoveredMessageId === message.id || pickerOpenForMessage === message.id) && (
+                                    <div className="absolute bottom-1 right-0 z-10 flex items-center gap-0.5 rounded-full border border-gray-200 bg-white p-0.5 shadow-sm">
+                                        {isOwnMessage && (
+                                            <>
+                                                {canEditMessage && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6"
+                                                        onClick={() => handleEdit(message)}
+                                                    >
+                                                        <GrEdit className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                                {canDeleteMessage && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6"
+                                                        onClick={() => handleDelete(message)}
+                                                    >
+                                                        <GrTrash className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                            </>
+                                        )}
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={() => handleReply(message)}
+                                        >
+                                            <MdReply className="h-4 w-4" />
+                                        </Button>
+                                        <Popover
+                                            open={pickerOpenForMessage === message.id}
+                                            onOpenChange={(isOpen) =>
+                                                setPickerOpenForMessage(isOpen ? message.id : null)
+                                            }
+                                        >
+                                            <PopoverTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                    <BsEmojiSmile className="h-4 w-4" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto border-none bg-transparent p-0">
+                                                <LazyEmojiPicker
+                                                    onEmojiClick={(emojiData: EmojiClickData) => {
+                                                        handleReaction(message, emojiData.emoji);
+                                                        setPickerOpenForMessage(null);
+                                                    }}
+                                                />
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
+                                )}
+                            </div>
+                        </div>,
+                    );
+                }
+
+                return acc;
+            }, [])}
+            <div ref={messagesEndRef} />
+        </div>
+    );
+};
+
+interface LatestMessageProps {
+    roomId: string;
+    latestMessages: Record<string, any>;
+}
+
+export const LatestMessage: React.FC<LatestMessageProps> = ({ roomId, latestMessages }) => {
+    const [matrixUserCache, setMatrixUserCache] = useAtom(matrixUserCacheAtom);
+    const latestMessage = useMemo(() => {
+        const matchingEntry = Object.entries(latestMessages).find(([key]) => key.startsWith(roomId));
+        if (!matchingEntry) {
+            return null;
+        }
+        // console.log(JSON.stringify(matchingEntry[1], null, 2));
+        return matchingEntry[1];
+    }, [latestMessages, roomId]);
+
+    const latestSender = useMemo(async () => {
+        let sender = latestMessage?.sender;
+        if (!sender) return null;
+
+        if (!matrixUserCache[sender]) {
+            console.log("Fetching matrix users");
+            // console.log(JSON.stringify(matrixUserCache, null, 2));
+            //await fetchAndCacheMatrixUsers([sender], matrixUserCache, setMatrixUserCache);
+        }
+
+        return (
+            matrixUserCache[sender] || {
+                _id: sender,
+                name: sender,
+                picture: { url: "/placeholder.svg" },
+            }
+        );
+    }, [latestMessage?.sender, matrixUserCache]);
+
+    const formattedMessage = useMemo(() => {
+        return {
+            ...latestMessage,
+            author: latestSender,
+        } as ChatMessage;
+    }, [latestMessage, latestSender]);
+
+    if (!formattedMessage) {
+        return <span>No messages yet</span>;
+    }
+
+    return <span>{formattedMessage?.content?.body as string}</span>;
+
+    // <MessageRenderer message={formattedMessage} preview={true} />;
+};
+
+type ChatInputProps = {
+    chatRoom: ChatRoomDisplay;
+    editingMessage: ChatMessage | null;
+    setEditingMessage: (message: ChatMessage | null) => void;
+};
+
+const ChatInput = ({ chatRoom, editingMessage, setEditingMessage }: ChatInputProps) => {
+    const [user] = useAtom(userAtom);
+    const [newMessage, setNewMessage] = useState("");
+    const [replyToMessage, setReplyToMessage] = useAtom(replyToMessageAtom);
+    const [, setRoomMessages] = useAtom(roomMessagesAtom);
+    const isMobile = useIsMobile();
+    
+    // Populate input when editing
+    useEffect(() => {
+        if (editingMessage) {
+            setNewMessage(editingMessage.content.body as string);
+        }
+    }, [editingMessage]);
+
+    const handleSendMessage = async () => {
+        const trimmedMessage = newMessage.trim();
+        console.log("📤 [Send] handleSendMessage called", {
+            hasUser: !!user,
+            hasAccessToken: !!user?.matrixAccessToken,
+            hasRoomId: !!chatRoom.matrixRoomId,
+            messageLength: trimmedMessage.length,
+            isEditing: !!editingMessage,
+            editingMessageId: editingMessage?.id
+        });
+        
+        if (!user) return;
+        
+        if (!user.matrixAccessToken) {
+            console.error("Missing Matrix credentials. User needs to log out and log back in to trigger Matrix registration.");
+            return;
+        }
+        
+        if (!chatRoom.matrixRoomId) {
+            console.error("Chat room does not have a Matrix room ID");
+            return;
+        }
+        
+        if (!trimmedMessage) {
+            return;
+        }
+        
+        // If editing, handle edit instead of send
+        if (editingMessage) {
+            console.log("📤 [Send] Routing to handleEditSubmit...");
+            await handleEditSubmit();
+            return;
+        }
+
+        const roomId = chatRoom.matrixRoomId;
+        const replyTarget = replyToMessage;
+        const tempId =
+            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? `temp-${crypto.randomUUID()}`
+                : `temp-${Date.now()}`;
+        const optimisticMessage: ChatMessage = {
+            id: tempId,
+            roomId,
+            type: "m.room.message",
+            content: {
+                msgtype: "m.text",
+                body: trimmedMessage,
+            },
+            createdBy:
+                user.fullMatrixName ||
+                (user.matrixUsername ? `@${user.matrixUsername}:${process.env.NEXT_PUBLIC_MATRIX_DOMAIN}` : user.name) ||
+                user.handle ||
+                "You",
+            createdAt: new Date(),
+            author: user,
+            reactions: {},
+            replyTo: replyTarget
+                ? {
+                      id: replyTarget.id,
+                      author: replyTarget.author,
+                      content: replyTarget.content,
+                  }
+                : undefined,
+            status: "pending",
+        };
+
+        const applyToTempMessage = (transform: (message: ChatMessage) => ChatMessage | null) => {
+            setRoomMessages((prev) => {
+                const current = prev[roomId] || [];
+                const next = current.flatMap((msg) => {
+                    if (msg.id !== tempId) {
+                        return [msg];
+                    }
+                    const updated = transform(msg);
+                    return updated ? [updated] : [];
+                });
+
+                return {
+                    ...prev,
+                    [roomId]: next,
+                };
+            });
+        };
+
+        setRoomMessages((prev) => {
+            const current = prev[roomId] || [];
+            const withoutRetriedFailures = current.filter((msg) => {
+                if (msg.status !== "failed") return true;
+                const body = typeof (msg.content as any)?.body === "string" ? (msg.content as any).body : "";
+                return !(body === trimmedMessage && msg.createdBy === optimisticMessage.createdBy);
+            });
+            return {
+                ...prev,
+                [roomId]: [...withoutRetriedFailures, optimisticMessage],
+            };
+        });
+
+        setNewMessage("");
+        setReplyToMessage(null);
+
+        const rollbackOptimisticMessage = (reason?: string) => {
+            console.error("Failed to send message:", reason);
+            applyToTempMessage((msg) => ({
+                ...msg,
+                status: "failed",
+                errorMessage: reason || "Failed to send",
+            }));
+	    setNewMessage(trimmedMessage);
+            if (replyTarget) {
+                setReplyToMessage(replyTarget);
+            }
+        };
+        
+        console.log("📤 [Send] Sending new message...");
+        try {
+            const { sendMessageAction } = await import("./actions");
+            const result = await sendMessageAction(roomId, trimmedMessage, replyTarget?.id);
+            
+            if (result.success) {
+                const eventId = result.eventId;
+
+                if (!eventId) {
+                    applyToTempMessage((msg) => ({ ...msg, status: undefined }));
+                } else {
+                    setRoomMessages((prev) => {
+                        const current = prev[roomId] || [];
+                        const alreadyExists = current.some((msg) => msg.id === eventId);
+                        const nextMessages = alreadyExists
+                            ? current.filter((msg) => msg.id !== tempId)
+                            : current.map((msg) =>
+                                  msg.id === tempId ? { ...msg, id: eventId, status: undefined } : msg,
+                              );
+
+                        return {
+                            ...prev,
+                            [roomId]: nextMessages,
+                        };
+                    });
+                }
+            } else {
+                rollbackOptimisticMessage(result.message);
+            }
+        } catch (error) {
+            rollbackOptimisticMessage(error instanceof Error ? error.message : String(error));
+        }
+    };
+
+    const handleEditSubmit = async () => {
+        console.log("✏️ [Edit] Starting edit submission", { 
+            hasEditingMessage: !!editingMessage, 
+            messageId: editingMessage?.id,
+            newContent: newMessage.trim(),
+            roomId: chatRoom.matrixRoomId
+        });
+        
+        if (!editingMessage || !newMessage.trim()) {
+            console.log("✏️ [Edit] Aborted - missing message or content");
+            return;
+        }
+        
+        try {
+            console.log("✏️ [Edit] Importing editMessageAction...");
+            const { editMessageAction } = await import("./actions");
+            console.log("✏️ [Edit] Calling editMessageAction with:", {
+                roomId: chatRoom.matrixRoomId,
+                eventId: editingMessage.id,
+                content: newMessage.trim()
+            });
+            
+            const result = await editMessageAction(
+                chatRoom.matrixRoomId!,
+                editingMessage.id,
+                newMessage.trim()
+            );
+            
+            console.log("✏️ [Edit] Server response:", result);
+            
+            if (result.success) {
+                console.log("✏️ [Edit] Success! Clearing state...");
+                setNewMessage("");
+                setEditingMessage(null);
+            } else {
+                console.error("✏️ [Edit] Failed:", result.message);
+                alert(`Failed to edit message: ${result.message}`);
+            }
+        } catch (error) {
+            console.error("✏️ [Edit] Exception:", error);
+            alert("Failed to edit message. Please try again.");
+        }
+    };
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = useState(false);
+
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Reset input so the same file can be selected again
+        e.target.value = "";
+
+        if (!user) return;
+        
+        if (!chatRoom.matrixRoomId) {
+            console.error("Chat room does not have a Matrix room ID");
+            return;
+        }
+
+        // Check size (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert("File size exceeds 5MB limit.");
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append("roomId", chatRoom.matrixRoomId);
+            formData.append("file", file);
+            if (replyToMessage) {
+                formData.append("replyToEventId", replyToMessage.id);
+            }
+
+            const { sendAttachmentAction } = await import("./actions");
+            const result = await sendAttachmentAction(formData);
+
+            if (result.success) {
+                setReplyToMessage(null);
+            } else {
+                console.error("Failed to send attachment:", result.message);
+                alert(`Failed to send attachment: ${result.message}`);
+            }
+        } catch (error) {
+            console.error("Failed to send attachment:", error);
+            alert("An error occurred while uploading the file.");
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleCommentKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (editingMessage) {
+                handleEditSubmit();
+            } else {
+                handleSendMessage();
+            }
+        } else if (e.key === "Escape" && editingMessage) {
+            setEditingMessage(null);
+            setNewMessage("");
+        }
+    };
+
+    return (
+        <div className="flex w-full flex-col">
+            {editingMessage && (
+                <div className="mb-2 flex items-center justify-between rounded-lg bg-blue-100 p-2">
+                    <div className="flex-grow overflow-hidden">
+                        <div className="font-semibold text-blue-700">Editing message</div>
+                        <p className="truncate text-sm text-blue-600">{editingMessage.content.body as string}</p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => { setEditingMessage(null); setNewMessage(""); }}>
+                        <IoClose className="h-5 w-5" />
+                    </Button>
+                </div>
+            )}
+            {replyToMessage && !editingMessage && (
+                <div className="mb-2 flex items-center justify-between rounded-lg bg-gray-200 p-2">
+                    <div className="flex-grow overflow-hidden">
+                        <div className="font-semibold text-gray-700">Replying to {replyToMessage.author.name}</div>
+                        <p className="truncate text-sm text-gray-600">{replyToMessage.content.body as string}</p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => setReplyToMessage(null)}>
+                        <IoClose className="h-5 w-5" />
+                    </Button>
+                </div>
+            )}
+            <div className="flex w-full items-end gap-2">
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    onChange={handleFileSelect}
+                />
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-10 w-10 shrink-0 rounded-full text-gray-500 hover:bg-gray-200"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                >
+                    {isUploading ? (
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />
+                    ) : (
+                        <IoAttach className="h-6 w-6" />
+                    )}
+                </Button>
+                
+                <MentionsInput
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={handleCommentKeyDown}
+                    placeholder="Type message and click icon or return to send..."
+                    className="flex-grow rounded-[20px] bg-gray-100"
+                    style={{
+                        ...defaultMentionsInputStyle,
+                        suggestions: {
+                            position: "absolute",
+                            bottom: "100%",
+                            marginBottom: "10px",
+                        },
+                    }}
+                >
+                    <Mention
+                        trigger="@"
+                        data={handleMentionQuery}
+                        style={defaultMentionStyle}
+                        displayTransform={(id, display) => `${display}`}
+                        renderSuggestion={renderCircleSuggestion}
+                        markup="[__display__](/circles/__id__)"
+                    />
+                </MentionsInput>
+                
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-10 w-10 shrink-0 rounded-full text-blue-600 hover:bg-blue-50"
+                    onClick={handleSendMessage}
+                    disabled={!newMessage.trim()}
+                >
+                    <IoSend className="h-5 w-5" />
+                </Button>
+                {isMobile && (
+                    <Button onClick={handleSendMessage} className="ml-2 rounded-full text-white">
+                        <IoSend />
+                    </Button>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export const fetchAndCacheMatrixUsers = async (
+    matrixUsernames: string[],
+    matrixUserCache: MatrixUserCache,
+    setMatrixUserCache: Dispatch<SetStateAction<MatrixUserCache>>,
+): Promise<MatrixUserCache> => {
+    // Deduplicate usernames
+    const uniqueUsernames = Array.from(new Set(matrixUsernames));
+    const uncachedUsernames = uniqueUsernames.filter((username) => !matrixUserCache[username]);
+
+    if (uncachedUsernames.length === 0) {
+        return matrixUserCache; // Nothing to fetch
+    }
+
+    try {
+        const userData: (Circle | null)[] = await fetchMatrixUsers(uncachedUsernames);
+
+        // Update cache with fetched users
+        const updatedCache = {
+            ...matrixUserCache,
+            ...userData.reduce((acc, user, index) => {
+                const matrixUsername = uncachedUsernames[index];
+                if (user) {
+                    acc[matrixUsername] = user;
+                }
+                return acc;
+            }, {} as MatrixUserCache),
+        };
+
+        setMatrixUserCache(updatedCache);
+        return updatedCache;
+    } catch (error) {
+        console.error("Failed to fetch Matrix users:", error);
+        return matrixUserCache; // Return the current cache even on failure
+    }
+};
+
+export const ChatRoomComponent: React.FC<{
+    chatRoom: ChatRoomDisplay;
+    setSelectedChat?: Dispatch<SetStateAction<ChatRoomDisplay | undefined>>;
+    circle?: Circle;
+    inToolbox?: boolean;
+}> = ({ chatRoom, setSelectedChat, circle, inToolbox }) => {
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
+    const isCompact = useIsCompact();
+    const [hideInput, setHideInput] = useState(false);
+    const [inputWidth, setInputWidth] = useState<number | null>(null);
+    const [pillStyle, setPillStyle] = useState<React.CSSProperties>({});
+    const isMobile = useIsMobile();
+    const [isLoadingMessages, startLoadingMessagesTransition] = useTransition();
+    const inputRef = useRef<HTMLDivElement>(null);
+    const [mapOpen] = useAtom(mapOpenAtom);
+    const [user, setUser] = useAtom(userAtom);
+    const [matrixUserCache, setMatrixUserCache] = useAtom(matrixUserCacheAtom);
+    const [roomMessages, setRoomMessages] = useAtom(roomMessagesAtom);
+    const [unreadCounts, setUnreadCounts] = useAtom(unreadCountsAtom);
+    const [lastReadTimestamps, setLastReadTimestamps] = useAtom(lastReadTimestampsAtom);
+    const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+    const [, setReplyToMessage] = useAtom(replyToMessageAtom);
+    const router = useRouter();
+
+    const handleDelete = async (message: ChatMessage) => {
+        if (window.confirm("Are you sure you want to delete this message?")) {
+            // Optimistic UI update
+            setRoomMessages((prev) => {
+                const newRoomMessages = { ...prev };
+                const currentRoomMessages = newRoomMessages[message.roomId] || [];
+                newRoomMessages[message.roomId] = currentRoomMessages.filter((m) => m.id !== message.id);
+                return newRoomMessages;
+            });
+
+            if (message.status && message.status !== "sent") {
+                return;
+            }
+
+            try {
+                const { deleteMessageAction } = await import("./actions");
+                const result = await deleteMessageAction(message.roomId, message.id);
+                
+                if (!result.success) {
+                    console.error("Failed to delete message:", result.message);
+                    alert(`Failed to delete message: ${result.message}`);
+                }
+            } catch (error) {
+                console.error("Exception deleting message:", error);
+                alert("Failed to delete message. Please try again.");
+            }
+        }
+    };
+
+    const handleEdit = (message: ChatMessage) => {
+        setEditingMessage(message);
+        setReplyToMessage(null); // Clear reply when editing
+    };
+
+    useEffect(() => {
+        if (logLevel >= LOG_LEVEL_TRACE) {
+            console.log("useEffect.ChatRoomComponent.1");
+        }
+
+        const markPmsAsRead = async () => {
+            try {
+                await fetch("/api/notifications/mark-pms-as-read", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ roomId: chatRoom.matrixRoomId }),
+                });
+            } catch (error) {
+                console.error("Error marking PMs as read:", error);
+            }
+        };
+
+        if (chatRoom.matrixRoomId) {
+            markPmsAsRead();
+        }
+    }, [chatRoom.matrixRoomId]);
+
+    const lastReadMessageIdRef = useRef<string | null>(null);
+
+    const markLatestMessageAsRead = useCallback(async () => {
+        if (messages.length > 0 && user?.matrixAccessToken) {
+            const latestMessage = messages[messages.length - 1];
+
+            // Prevent infinite loop - only mark as read if it's a new message
+            if (lastReadMessageIdRef.current === latestMessage.id) {
+                return;
+            }
+
+            console.log(`💬 [Chat] Marking latest message as read in room ${chatRoom.name}:`);
+            console.log(`💬 [Chat] - Room ID: ${latestMessage.roomId}`);
+            console.log(`💬 [Chat] - Message ID: ${latestMessage.id}`);
+            console.log(`💬 [Chat] - Time: ${new Date(latestMessage.createdAt).toISOString()}`);
+            console.log(`💬 [Chat] - From: ${latestMessage.createdBy}`);
+
+            if (latestMessage.type === "m.room.message") {
+                const contentPreview =
+                    typeof latestMessage.content?.body === "string"
+                        ? JSON.stringify(latestMessage.content?.body).substring(0, 50)
+                        : "N/A";
+                console.log(`💬 [Chat] - Content: ${contentPreview}...`);
+            }
+
+            try {
+                const { sendReadReceiptAction } = await import("./actions");
+                await sendReadReceiptAction(latestMessage.roomId, latestMessage.id);
+                lastReadMessageIdRef.current = latestMessage.id;
+                
+                // Update last read timestamp for this room
+                const messageTimestamp = latestMessage.createdAt instanceof Date 
+                    ? latestMessage.createdAt.getTime() 
+                    : new Date(latestMessage.createdAt).getTime();
+                    
+                if (chatRoom.matrixRoomId) {
+                    setLastReadTimestamps((prev) => ({
+                        ...prev,
+                        [chatRoom.matrixRoomId!]: messageTimestamp
+                    }));
+                    
+                    console.log(`💬 [Chat] Updated last read timestamp for room ${chatRoom.matrixRoomId} to ${new Date(messageTimestamp).toISOString()}`);
+                }
+                
+                // Clear unread count for this room
+                if (chatRoom.matrixRoomId) {
+                    setUnreadCounts((prev) => {
+                        const newCounts = { ...prev };
+                        // Clear all entries for this room (handles both with and without user ID suffix)
+                        Object.keys(newCounts).forEach(key => {
+                            if (key.startsWith(chatRoom.matrixRoomId!)) {
+                                delete newCounts[key];
+                            }
+                        });
+                        return newCounts;
+                    });
+                }
+                
+                console.log(`💬 [Chat] Read receipt sent successfully`);
+            } catch (error) {
+                console.error("Failed to send read receipt:", error);
+            }
+        } else {
+            console.log(`💬 [Chat] No messages to mark as read for room ${chatRoom.name || chatRoom.matrixRoomId}`);
+        }
+    }, [chatRoom?.matrixRoomId, chatRoom?.name, messages, user?.matrixAccessToken, setUnreadCounts, setLastReadTimestamps]);
+
+    const scrollToBottom = (behavior: "smooth" | "auto" = "auto") => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior });
+        }
+    };
+
+    const handleScroll = () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+            const { scrollTop, scrollHeight, clientHeight } = container;
+            // A threshold to decide if the user has scrolled up significantly
+            if (scrollHeight - scrollTop - clientHeight > 150) {
+                setUserHasScrolledUp(true);
+            } else {
+                setUserHasScrolledUp(false);
+            }
+        }
+    };
+
+    useEffect(() => {
+        if (!userHasScrolledUp) {
+            scrollToBottom("smooth");
+        }
+    }, [messages, userHasScrolledUp]);
+
+    useEffect(() => {
+        const roomId = chatRoom.matrixRoomId!;
+        const roomMessagesForChat = roomMessages[roomId] || [];
+        setMessages(roomMessagesForChat);
+    }, [chatRoom.matrixRoomId, roomMessages, matrixUserCache]);
+
+    const messagesRef = useRef<ChatMessage[]>([]);
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
+
+    useEffect(() => {
+        markLatestMessageAsRead(); // Mark the latest message as read when messages update
+    }, [messages, markLatestMessageAsRead]);
+
+    // Initial check/fetch to ensure we are in the room (triggers auto-join if needed)
+    useEffect(() => {
+        if (!chatRoom.matrixRoomId) return;
+
+        // If we don't have messages yet, try to fetch to ensure we are joined
+        // This is crucial for fixing "broken" memberships where the user is in local DB but not Matrix
+        const checkConnection = async () => {
+            if ((!roomMessages[chatRoom.matrixRoomId!] || roomMessages[chatRoom.matrixRoomId!].length === 0)) {
+                try {
+                    console.log("🔄 [Chat] Checking room connection/fetching initial messages...", chatRoom.matrixRoomId);
+                    const { fetchRoomMessagesAction } = await import("./actions");
+                    const result = await fetchRoomMessagesAction(chatRoom.matrixRoomId!, 20);
+                    
+                    if (result.success && result.messages) {
+                        console.log("✅ [Chat] Initial fetch successful, user is in room.");
+                        // We could update state here, but the background poller will likely catch up.
+                        // However, to be instant, let's update local cache if it's empty
+                        if (result.messages.length > 0) {
+                             // Force an update to roomMessages if it was empty
+                             // (This duplicates logic from the disabled poller but is safe for a one-off)
+                             // Actually, let's just let the poller/sync loop handle the main state, 
+                             // OR manually inject if we trust the format.
+                             // For simplicity/safety, we just want the SIDE EFFECT of joining.
+                             // But showing messages immediately is better.
+                        }
+                    }
+                } catch (error) {
+                    console.error("❌ [Chat] Failed to check connection:", error);
+                }
+            }
+        };
+        
+        checkConnection();
+    }, [chatRoom.matrixRoomId, roomMessages]);
+
+    // Server-side message polling - DISABLED: Now handled by BackgroundMessagePoller globally
+    /*
+    useEffect(() => {
+        if (!chatRoom.matrixRoomId) return;
+
+        let intervalId: NodeJS.Timeout;
+        let lastMessageCount = 0;
+        
+        const pollMessages = async () => {
+            try {
+                const { fetchRoomMessagesAction } = await import("./actions");
+                const result = await fetchRoomMessagesAction(chatRoom.matrixRoomId!, 50);
+                
+                if (result.success && result.messages) {
+                    // Only process if message count changed
+                    if (result.messages.length === lastMessageCount) {
+                        return;
+                    }
+                    
+                    lastMessageCount = result.messages.length;
+                    
+                    // Convert Matrix messages to ChatMessage format and update roomMessages
+                    const formattedMessages: ChatMessage[] = await Promise.all(
+                        result.messages
+                            .filter((msg: any) => msg.type === "m.room.message")
+                            .map(async (msg: any) => {
+                                // Get or cache user info
+                                let author = matrixUserCache[msg.sender];
+                                if (!author) {
+                                    const users = await fetchMatrixUsers([msg.sender]);
+                                    author = users[0];
+                                    if (author) {
+                                        setMatrixUserCache((prev) => ({ ...prev, [msg.sender]: author }));
+                                    }
+                                }
+
+                                return {
+                                    id: msg.event_id,
+                                    roomId: chatRoom.matrixRoomId!,
+                                    type: msg.type,
+                                    content: msg.content,
+                                    createdBy: msg.sender,
+                                    createdAt: new Date(msg.origin_server_ts),
+                                    author: author || undefined,
+                                    reactions: {},
+                                } as ChatMessage;
+                            })
+                    );
+
+                    // Update room messages if we have new messages
+                    if (formattedMessages.length > 0) {
+                        setRoomMessages((prev) => ({
+                            ...prev,
+                            [chatRoom.matrixRoomId!]: formattedMessages.reverse(),
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to poll messages:", error);
+            }
+        };
+
+        // Initial fetch
+        pollMessages();
+
+        // Poll every 3 seconds
+        intervalId = setInterval(pollMessages, 3000);
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [chatRoom.matrixRoomId, matrixUserCache, setMatrixUserCache, setRoomMessages]);
+    */
+
+
+    useEffect(() => {
+        const updateInputWidth = () => {
+            if (inputRef.current) {
+                setInputWidth(inputRef.current.clientWidth);
+            }
+        };
+        setHideInput(false);
+        updateInputWidth();
+        window.addEventListener("resize", updateInputWidth);
+        return () => window.removeEventListener("resize", updateInputWidth);
+    }, [mapOpen]);
+
+    useEffect(() => {
+        const calculatePillPosition = () => {
+            const container = inputRef.current;
+            if (container) {
+                const rect = container.getBoundingClientRect();
+                setPillStyle({
+                    left: `${rect.left + rect.width / 2}px`,
+                    transform: "translateX(-50%)",
+                });
+            }
+        };
+
+        calculatePillPosition();
+        window.addEventListener("resize", calculatePillPosition);
+        return () => window.removeEventListener("resize", calculatePillPosition);
+    }, [messages]);
+
+    const handleMessagesRendered = () => {
+        if (!userHasScrolledUp) {
+            scrollToBottom();
+        }
+    };
+
+    return (
+        <>
+            <div
+                className={`flex h-full flex-1 items-start justify-center ${inToolbox ? "bg-[#fbfbfb]" : "min-h-screen"}`}
+                style={{
+                    flexGrow: isCompact || inToolbox ? "1" : "3",
+                    maxWidth: isCompact || inToolbox ? "none" : "700px",
+                }}
+            >
+                <div ref={inputRef} className="relative flex h-full w-full flex-col">
+                    {!inToolbox && circle && (
+                        <Link href={`/circles/${circle.handle}`}>
+                            <div className="fixed top-4 z-[20] cursor-pointer" style={pillStyle}>
+                                <div className="flex items-center gap-2 rounded-full bg-white p-2 shadow-lg hover:bg-gray-100">
+                                    <CirclePicture circle={circle} size="24px" />
+                                    <span className="text-sm font-semibold">{circle.name}</span>
+                                </div>
+                            </div>
+                        </Link>
+                    )}
+                    {inToolbox ? (
+                        <div
+                            ref={scrollContainerRef}
+                            onScroll={handleScroll}
+                            className="overflow-y-auto p-4"
+                            style={{
+                                height: "calc(100vh - 300px)",
+                            }}
+                        >
+                            {isLoadingMessages && <div className="text-center text-gray-500">Loading messages...</div>}
+                            {!isLoadingMessages && (
+                                <ChatMessages
+                                    messages={messages}
+                                    messagesEndRef={messagesEndRef}
+                                    onMessagesRendered={handleMessagesRendered}
+                                    handleDelete={handleDelete}
+                                    handleEdit={handleEdit}
+                                />
+                            )}
+                        </div>
+                    ) : (
+                        <div
+                            ref={scrollContainerRef}
+                            onScroll={handleScroll}
+                            className="flex-grow overflow-y-auto p-4 pb-[144px]"
+                        >
+                            {isLoadingMessages && <div className="text-center text-gray-500">Loading messages...</div>}
+                            {!isLoadingMessages && (
+                                <ChatMessages
+                                    messages={messages}
+                                    messagesEndRef={messagesEndRef}
+                                    onMessagesRendered={handleMessagesRendered}
+                                    handleDelete={handleDelete}
+                                    handleEdit={handleEdit}
+                                />
+                            )}
+                        </div>
+                    )}
+
+                    {userHasScrolledUp && (
+                        <Button
+                            variant="secondary"
+                            size="icon"
+                            className="absolute bottom-20 right-4 h-10 w-10 rounded-full shadow-lg"
+                            onClick={() => scrollToBottom("smooth")}
+                        >
+                            <IoArrowDown className="h-6 w-6" />
+                        </Button>
+                    )}
+
+                    <div
+                        className="fixed h-[50px]"
+                        style={{
+                            width: `${inputWidth}px`,
+                            bottom: isMobile ? "72px" : "0px",
+                            opacity: hideInput ? 0 : 1,
+                        }}
+                    >
+                        <div className="flex h-[50px] items-end bg-[#fbfbfb] pb-1 pl-2 pr-2">
+                            <ChatInput 
+                                chatRoom={chatRoom} 
+                                editingMessage={editingMessage}
+                                setEditingMessage={setEditingMessage}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {isMobile && !inToolbox && (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="fixed left-4 top-4 z-20 h-9 w-9 rounded-full bg-[#f1f1f1] hover:bg-[#cecece]"
+                    onClick={() => router.push("/chat")}
+                >
+                    <IoArrowBack className="h-5 w-5" />
+                </Button>
+            )}
+        </>
+    );
+};
