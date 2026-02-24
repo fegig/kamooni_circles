@@ -25,10 +25,11 @@ const parseEnvFlag = (value?: string) => {
 };
 
 const MATRIX_SYNC_ENABLED = parseEnvFlag(process.env.NEXT_PUBLIC_MATRIX_ENABLED);
+const CHAT_PROVIDER = process.env.NEXT_PUBLIC_CHAT_PROVIDER || "matrix";
 
 export const MatrixSync = () => {
     const pathname = usePathname();
-    const shouldSync = MATRIX_SYNC_ENABLED && pathname?.startsWith("/chat");
+    const shouldSync = MATRIX_SYNC_ENABLED && CHAT_PROVIDER === "matrix" && pathname?.startsWith("/chat");
 
     if (!shouldSync) {
         return null;
@@ -300,12 +301,12 @@ useEffect(() => {
         if (syncGenerationRef.current !== myGen) return;
 
         // Start the live sync loop
-        stopSyncRef.current = startSync(
+        stopSyncRef.current = (startSync(
             user.matrixAccessToken!,
             user.matrixUrl!,
             user.matrixUsername!,
-            handleSyncData,
-        );
+            handleSyncData
+        ) as unknown as () => void);
     };
 
     // Fire and forget; generation guards handle safety.

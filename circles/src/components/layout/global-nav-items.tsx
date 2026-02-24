@@ -8,11 +8,18 @@ import { motion } from "framer-motion";
 import { userAtom, sidePanelModeAtom, drawerContentAtom } from "@/lib/data/atoms";
 import { useAtom } from "jotai";
 import { useIsMobile } from "@/components/utils/use-is-mobile";
+import { IoChatbubbleOutline, IoPulseOutline } from "react-icons/io5";
+import { LiaGlobeAfricaSolid } from "react-icons/lia";
 import { LOG_LEVEL_TRACE, logLevel } from "@/lib/data/constants";
+import { CgFeed } from "react-icons/cg";
+import { MdRssFeed } from "react-icons/md";
 import GlobalCreateButton from "./global-create-button";
+import { Bookmark, Plus, Calendar as CalendarIcon } from "lucide-react";
 import { Circle } from "@/models/models";
 import { CirclePicture } from "../modules/circles/circle-picture";
 import PinPicker from "../modules/home/pin-picker";
+import { RiMegaphoneLine } from "react-icons/ri";
+import { PiScroll } from "react-icons/pi";
 
 export default function GlobalNavItems() {
     const pathname = usePathname();
@@ -67,13 +74,13 @@ export default function GlobalNavItems() {
                             setSidePanelMode("none");
                             setDrawerContent("explore");
                         }}
-                        className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                        className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
                             pathname === "/explore" &&
                             panelMode !== "activity" &&
                             panelMode !== "events" &&
                             drawerContent !== "noticeboard" &&
                             drawerContent !== "events"
-                                ? "text-kam-hero-yellow"
+                                ? "text-[#495cff]"
                                 : "text-[#696969]"
                         }`}
                         whileHover={{ scale: 1.1 }}
@@ -82,7 +89,7 @@ export default function GlobalNavItems() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0 * 0.1 }}
                     >
-                        <i className="fi fi-rr-globe" style={{ fontSize: 24 }} aria-hidden />
+                        <LiaGlobeAfricaSolid size={"24px"} />
                         <motion.span
                             className="mt-[2px] text-[11px]"
                             initial={{ opacity: 0 }}
@@ -107,10 +114,10 @@ export default function GlobalNavItems() {
                     }}
                 >
                     <motion.div
-                        className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                        className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
                             (pathname === "/explore" && panelMode === "activity") ||
                             (isMobile && drawerContent === "noticeboard" && pathname === "/explore")
-                                ? "text-kam-hero-yellow"
+                                ? "text-[#495cff]"
                                 : "text-[#696969]"
                         }`}
                         whileHover={{ scale: 1.1 }}
@@ -119,7 +126,7 @@ export default function GlobalNavItems() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0 * 0.1 }}
                     >
-                        <i className="fi fi-rr-scroll" style={{ fontSize: 24 }} aria-hidden />
+                        <PiScroll size={"24px"} />
                         {/* <IoPulseOutline size={"24px"} /> */}
                         <motion.span
                             className="mt-[2px] text-[11px]"
@@ -147,10 +154,10 @@ export default function GlobalNavItems() {
                     }}
                 >
                     <motion.div
-                        className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                        className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
                             (pathname === "/explore" && panelMode === "events") ||
                             (isMobile && drawerContent === "events" && pathname === "/explore")
-                                ? "text-kam-hero-yellow"
+                                ? "text-[#495cff]"
                                 : "text-[#696969]"
                         }`}
                         whileHover={{ scale: 1.1 }}
@@ -159,7 +166,7 @@ export default function GlobalNavItems() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0 * 0.1 }}
                     >
-                        <i className="fi fi-rr-calendar" style={{ fontSize: 24 }} aria-hidden />
+                        <CalendarIcon size={"24px"} />
                         <motion.span
                             className="mt-[2px] text-[11px]"
                             initial={{ opacity: 0 }}
@@ -175,8 +182,8 @@ export default function GlobalNavItems() {
                 <Link href={"/bookmarks"}>
                     <motion.div
                         onClick={() => setSidePanelMode("none")}
-                        className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
-                            pathname === "/bookmarks" ? "text-kam-hero-yellow" : "text-[#696969]"
+                        className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                            pathname === "/bookmarks" ? "text-[#495cff]" : "text-[#696969]"
                         }`}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
@@ -184,7 +191,7 @@ export default function GlobalNavItems() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0.1 }}
                     >
-                        <i className="fi fi-rr-bookmark" style={{ fontSize: 24 }} aria-hidden />
+                        <Bookmark size={"24px"} />
                         <motion.span
                             className="mt-[2px] text-[11px]"
                             initial={{ opacity: 0 }}
@@ -200,8 +207,8 @@ export default function GlobalNavItems() {
                     <>
                         {/* <Link href={"/chat"}>
                             <motion.div
-                                className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
-                                    pathname === "/chat" ? "text-kam-hero-yellow" : "text-[#696969]"
+                                className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                                    pathname === "/chat" ? "text-[#495cff]" : "text-[#696969]"
                                 }`}
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.95 }}
@@ -246,7 +253,7 @@ export default function GlobalNavItems() {
                                         onClick={() => setPinPickerOpen(true)}
                                         className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-dashed border-gray-300 text-gray-400 hover:border-gray-400 hover:text-gray-600"
                                     >
-                                        <i className="fi fi-rr-plus h-4 w-4" style={{ fontSize: 16 }} aria-hidden />
+                                        <Plus className="h-4 w-4" />
                                     </button>
                                 );
                             })}
@@ -282,8 +289,8 @@ export default function GlobalNavItems() {
 
                 {/* <Link href={"/map"}>
                     <motion.div
-                        className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
-                            pathname === "/map" ? "text-kam-hero-yellow" : "text-[#696969]"
+                        className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                            pathname === "/map" ? "text-[#495cff]" : "text-[#696969]"
                         }`}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
@@ -291,7 +298,7 @@ export default function GlobalNavItems() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 3 * 0.1 }}
                     >
-                        <i className="fi fi-rr-globe" style={{ fontSize: 24 }} aria-hidden />
+                        <LiaGlobeAfricaSolid size={"24px"} />
                         <motion.span
                             className="mt-[2px] text-[11px]"
                             initial={{ opacity: 0 }}
@@ -305,8 +312,8 @@ export default function GlobalNavItems() {
                 {/* 
                 <Link href={"/settings"}>
                     <motion.div
-                        className={`flex shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
-                            pathname === "/settings" ? "text-kam-hero-yellow" : "text-[#696969]"
+                        className={`flex flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg md:w-[64px] md:pb-2 md:pt-2 md:hover:bg-[#f8f8f8] ${
+                            pathname === "/settings" ? "text-[#495cff]" : "text-[#696969]"
                         }`}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}

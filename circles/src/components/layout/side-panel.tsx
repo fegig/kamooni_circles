@@ -124,7 +124,7 @@ export const SidePanel: React.FC = () => {
                     <motion.div
                         key={sidePanelMode}
                         className={`fixed left-[72px] top-0 z-[200] flex h-[100vh] flex-shrink-0 flex-col bg-white ${
-                            isFullWidthActivity ? "" : "md:rounded-r-xl md:border-r md:border-gray-200/50 md:shadow-xl"
+                            isFullWidthActivity ? "" : "md:border-r md:shadow-sm"
                         }`}
                         style={{ width: isFullWidthActivity ? "calc(100vw - 72px)" : 420 }}
                         initial={{ x: "-100%" }}

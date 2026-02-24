@@ -28,26 +28,16 @@ import {
     Notification,
 } from "@/models/models";
 import { AggregateRank } from "./ranking";
+import { ChatConversation, ChatMessageDoc, ChatReadState } from "@/lib/chat/mongo-types";
 
-const MONGO_HOST = process.env.MONGO_HOST || "127.0.0.1";
-const MONGO_PORT = parseInt(process.env.MONGO_PORT || "27017");
-const MONGO_ADMIN_USER = process.env.MONGO_ROOT_USERNAME || "admin";
-const MONGO_ADMIN_PASSWORD = process.env.MONGO_ROOT_PASSWORD || "password";
+const MONGODB_URI =
+    process.env.MONGODB_URI ||
+    `mongodb://${process.env.MONGO_ROOT_USERNAME || "admin"}:${process.env.MONGO_ROOT_PASSWORD || "password"}@${process.env.MONGO_HOST || "127.0.0.1"}:${process.env.MONGO_PORT || "27017"}`;
 
-function buildConnectionString(): string {
-	if (process.env.MONGODB_URI || process.env.MONGO_URI) {
-		const uri = process.env.MONGODB_URI || process.env.MONGO_URI!;
-		return uri.includes("authSource=") ? uri : `${uri}${uri.includes("?") ? "&" : "?"}authSource=admin`;
-	}
-	const user = encodeURIComponent(MONGO_ADMIN_USER);
-	const pass = encodeURIComponent(MONGO_ADMIN_PASSWORD);
-	return `mongodb://${user}:${pass}@${MONGO_HOST}:${MONGO_PORT}/?authSource=admin`;
-}
-
-const MONGO_CONNECTION_STRING = buildConnectionString();
-
-console.log("MONGO_CONNECTION_STRING", MONGO_CONNECTION_STRING);
 const options: MongoClientOptions = {};
+
+console.log("DEBUG DB: process.env.MONGODB_URI =", (process.env.MONGODB_URI || "").replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@"));
+console.log("DEBUG DB: fallback parts =", { MONGO_ROOT_USERNAME: process.env.MONGO_ROOT_USERNAME, MONGO_HOST: process.env.MONGO_HOST, MONGO_PORT: process.env.MONGO_PORT });
 
 // Initialize client and collections conditionally
 let client: MongoClient;
@@ -79,11 +69,13 @@ let AggregateRanks: Collection<AggregateRank>;
 let UserNotificationSettings: Collection<UserNotificationSetting>; // Added UserNotificationSettings collection
 let DefaultNotificationSettings: Collection<DefaultNotificationSetting>; // Added DefaultNotificationSettings collection
 let Notifications: Collection<Notification>;
+let ChatConversations: Collection<ChatConversation>;
+let ChatMessageDocs: Collection<ChatMessageDoc>;
+let ChatReadStates: Collection<ChatReadState>;
 
 // Only initialize the database connection if not in build mode
 if (process.env.IS_BUILD !== "true") {
-    client = new MongoClient(MONGO_CONNECTION_STRING, options);
-
+    client = new MongoClient(MONGODB_URI, options);
     // Connect the client - this establishes the connection more reliably
     client.connect().catch((err) => {
         console.error("MongoDB connection error:", err);
@@ -118,6 +110,15 @@ if (process.env.IS_BUILD !== "true") {
     UserNotificationSettings = db.collection<UserNotificationSetting>("userNotificationSettings");
     DefaultNotificationSettings = db.collection<DefaultNotificationSetting>("defaultNotificationSettings");
     Notifications = db.collection<Notification>("notifications");
+    ChatConversations = db.collection<ChatConversation>("chatConversations");
+    ChatMessageDocs = db.collection<ChatMessageDoc>("chatMessageDocs");
+    ChatReadStates = db.collection<ChatReadState>("chatReadStates");
+}
+export async function getDb() {
+  if (!client) throw new Error("Mongo client not initialised (IS_BUILD=true?)");
+  // If not connected yet (or got reloaded), ensure connection is established
+  await client.connect();
+  return client.db("circles");
 }
 
 export {
@@ -150,4 +151,7 @@ export {
     UserNotificationSettings,
     DefaultNotificationSettings,
     Notifications,
+    ChatConversations,
+    ChatMessageDocs,
+    ChatReadStates,
 };
