@@ -17,6 +17,7 @@ import {
     Proposal,
     Issue,
     Task,
+    FundingAsk,
     RankedList,
     Goal,
     GoalMember, // Added GoalMember model
@@ -26,9 +27,12 @@ import {
     EventRsvp,
     EventInvitation,
     Notification,
+    HumanityVerification,
+    PlatformSettings,
 } from "@/models/models";
 import { AggregateRank } from "./ranking";
-import { ChatConversation, ChatMessageDoc, ChatReadState } from "@/lib/chat/mongo-types";
+import { ChatConversation, ChatMessageDoc, ChatReadState, MessageEmailReminder } from "@/lib/chat/mongo-types";
+import type { PlatformBroadcastMessage } from "./platform-broadcasts";
 
 const MONGODB_URI =
     process.env.MONGODB_URI ||
@@ -44,6 +48,7 @@ let client: MongoClient;
 let db: Db;
 let Circles: Collection<Circle>;
 let ServerSettingsCollection: Collection<ServerSettings>;
+let PlatformSettingsCollection: Collection<PlatformSettings>;
 let Members: Collection<Member>;
 let MembershipRequests: Collection<MembershipRequest>;
 let Feeds: Collection<Feed>;
@@ -59,6 +64,7 @@ let Challenges: Collection<Challenge>;
 let Proposals: Collection<Proposal>;
 let Issues: Collection<Issue>;
 let Tasks: Collection<Task>;
+let FundingAsks: Collection<FundingAsk>;
 let Goals: Collection<Goal>;
 let Events: Collection<Event>;
 let EventRsvps: Collection<EventRsvp>;
@@ -72,6 +78,11 @@ let Notifications: Collection<Notification>;
 let ChatConversations: Collection<ChatConversation>;
 let ChatMessageDocs: Collection<ChatMessageDoc>;
 let ChatReadStates: Collection<ChatReadState>;
+let MessageEmailReminders: Collection<MessageEmailReminder>;
+let PlatformBroadcastMessages: Collection<PlatformBroadcastMessage>;
+let StripeWebhookEvents: Collection<any>;
+let UserRelationships: Collection<any>;
+let HumanityVerifications: Collection<HumanityVerification>;
 
 // Only initialize the database connection if not in build mode
 if (process.env.IS_BUILD !== "true") {
@@ -100,6 +111,7 @@ if (process.env.IS_BUILD !== "true") {
     Proposals = db.collection<Proposal>("proposals");
     Issues = db.collection<Issue>("issues");
     Tasks = db.collection<Task>("tasks");
+    FundingAsks = db.collection<FundingAsk>("fundingAsks");
     Goals = db.collection<Goal>("goals");
     Events = db.collection<Event>("events");
     EventRsvps = db.collection<EventRsvp>("eventRsvps");
@@ -113,6 +125,12 @@ if (process.env.IS_BUILD !== "true") {
     ChatConversations = db.collection<ChatConversation>("chatConversations");
     ChatMessageDocs = db.collection<ChatMessageDoc>("chatMessageDocs");
     ChatReadStates = db.collection<ChatReadState>("chatReadStates");
+    MessageEmailReminders = db.collection<MessageEmailReminder>("messageEmailReminders");
+    PlatformBroadcastMessages = db.collection<PlatformBroadcastMessage>("platformBroadcastMessages");
+    StripeWebhookEvents = db.collection("stripeWebhookEvents");
+    UserRelationships = db.collection("userRelationships");
+    HumanityVerifications = db.collection<HumanityVerification>("humanityVerifications");
+    PlatformSettingsCollection = db.collection<PlatformSettings>("platformSettings");
 }
 export async function getDb() {
   if (!client) throw new Error("Mongo client not initialised (IS_BUILD=true?)");
@@ -141,6 +159,7 @@ export {
     Proposals,
     Issues,
     Tasks,
+    FundingAsks,
     Goals,
     Events,
     EventRsvps,
@@ -154,4 +173,10 @@ export {
     ChatConversations,
     ChatMessageDocs,
     ChatReadStates,
+    MessageEmailReminders,
+    PlatformBroadcastMessages,
+    StripeWebhookEvents,
+    UserRelationships,
+    HumanityVerifications,
+    PlatformSettingsCollection,
 };

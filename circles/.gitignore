@@ -46,4 +46,13 @@ NOTES*
 # Local backup files
 *.bak.*
 
-.cursor
+# Local secrets
+.env
+.env.local
+
+# Local-only
+.DS_Store
+backups/
+.DS_Store
+tmp/
+.DS_Store

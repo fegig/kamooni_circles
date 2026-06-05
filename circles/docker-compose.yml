@@ -2,6 +2,12 @@
 services:
     circles:
         image: circles-circles:latest
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+              GIT_SHA: ${GIT_SHA:-unknown}
+              BUILD_TIME: ${BUILD_TIME:-unknown}
         ports:
             - "${CIRCLES_PORT}:${CIRCLES_PORT}"
         env_file:
@@ -96,6 +102,7 @@ services:
 
     postgres:
         image: postgres:14
+        profiles: ["matrix"]
         restart: always
         env_file:
             - .env
@@ -111,6 +118,7 @@ services:
 
     synapse:
         image: matrixdotorg/synapse:latest
+        profiles: ["matrix"]
         env_file:
             - .env
         restart: always

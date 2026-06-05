@@ -9,7 +9,8 @@ const buttonVariants = cva(
     {
         variants: {
             variant: {
-                default: "bg-kam-button-red-orange text-white hover:bg-kam-button-red-orange/90 border border-kam-button-red-orange",
+                default:
+                    "bg-[hsl(var(--button-primary))] text-[hsl(var(--button-primary-foreground))] hover:bg-[hsl(var(--button-primary-hover))]",
                 destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
                 outline: "border border-input bg-background hover:bg-accent  hover:border-kam-button-red-orange",
                 secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",

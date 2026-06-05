@@ -6,7 +6,7 @@ import { userAtom } from "@/lib/data/atoms";
 import { Circle } from "@/models/models";
 import { CirclePicture } from "@/components/modules/circles/circle-picture";
 import { useRouter } from "next/navigation";
-import { getAllUsersAction, createGroupChatAction, createMongoGroupChatAction, listChatRoomsAction, findOrCreateDMConversationAction } from "./actions";
+import { getChatContactsAction, createMongoGroupChatAction, findOrCreateDMConversationAction } from "./actions";
 import { getUserPrivateAction } from "../home/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,15 +31,12 @@ export function CreateChatModal({ isOpen, onClose }: CreateChatModalProps) {
     const [step, setStep] = useState<Step>("select-type");
     const [searchTerm, setSearchTerm] = useState("");
     const [allUsers, setAllUsers] = useState<Circle[]>([]);
-    const [dmContactIds, setDmContactIds] = useState<Set<string>>(new Set());
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [selectedMembers, setSelectedMembers] = useState<Circle[]>([]);
     const [groupName, setGroupName] = useState("");
     const [groupAvatar, setGroupAvatar] = useState<File | null>(null);
     const [groupAvatarPreview, setGroupAvatarPreview] = useState<string | null>(null);
     const [isCreating, setIsCreating] = useState(false);
-    const provider = process.env.NEXT_PUBLIC_CHAT_PROVIDER || "matrix";
-        const isObjectId = (s: string) => /^[a-fA-F0-9]{24}$/.test(s);
 
 
     useEffect(() => {
@@ -54,54 +51,14 @@ export function CreateChatModal({ isOpen, onClose }: CreateChatModalProps) {
             setGroupName("");
             setGroupAvatar(null);
             setGroupAvatarPreview(null);
-            setDmContactIds(new Set());
         }
-    }, [isOpen]);
+    }, [isOpen, allUsers.length]);
 
     const fetchUsers = async () => {
         try {
             setIsLoadingUsers(true);
-            const users = await getAllUsersAction();
+            const users = await getChatContactsAction();
             setAllUsers(users || []);
-
-            // Mongo: restrict "New Chat" list to users with an existing DM conversation
-            if (provider === "mongo") {
-                try {
-                    const res = await listChatRoomsAction();
-                    const rooms = (res as any)?.rooms || [];
-                    const ids = new Set<string>();
-
-                    for (const room of rooms) {
-                        if (!room?.isDirect) continue;
-
-                    // Mongo DM participants are DIDs (not ObjectIds)
-                    const dmDids: any[] =
-                        (room as any)?.dmParticipants ||
-                        (room as any)?.dmParticipantDids ||
-                        (room as any)?.participants ||
-                        [];
-
-                    for (const did of dmDids) {
-                        if (!did) continue;
-
-                        const didStr = String(did);
-                        const selfDid = user?.did ? String(user.did) : "";
-
-                        if (selfDid && didStr === selfDid) continue;
-                        ids.add(didStr);
-                    }
-                }
-
-console.log("Mongo DM Contact DIDs:", Array.from(ids));
-
-      
-                    setDmContactIds(ids);
-                    console.log("Mongo DM Contact IDs:", Array.from(ids));
-                } catch (e) {
-                    console.error("Error fetching mongo DM contacts:", e);
-                    setDmContactIds(new Set());
-                }
-            }
         } catch (err) {
             console.error("Error fetching users:", err);
         } finally {
@@ -110,59 +67,44 @@ console.log("Mongo DM Contact DIDs:", Array.from(ids));
     };
 
     const filteredUsers = useMemo(() => {
-        const term = searchTerm.toLowerCase();
+        const term = searchTerm.trim().toLowerCase();
 
         return allUsers.filter((u) => {
-            console.log("User ID in list:", u._id);
-
             // Exclude self
             if (u._id && user?._id && String(u._id) === String(user._id)) {
                 return false;
             }
-
-            // Mongo: only restrict the default (non-search) New Chat list.
-            // If the user is searching, show normal search results.
-            if (provider === "mongo" && step === "select-type" && !term) {
-            // Mongo DM participants are identified by DID (not Mongo _id)
-                    if (!u.did) return false;
-            return dmContactIds.has(String(u.did));
-            }
+            if (!term) return true;
 
             const nameMatch = u.name?.toLowerCase().includes(term);
             const handleMatch = u.handle?.toLowerCase().includes(term);
 
             return nameMatch || handleMatch;
         });
-    }, [allUsers, searchTerm, user?._id, provider, step, dmContactIds]);
+    }, [allUsers, searchTerm, user?._id]);
 
     const handleUserClick = (clickedUser: Circle) => {
-    if (step === "select-type") {
-        // Mongo: just navigate to /chat/[handle]
-        if (provider === "mongo") {
+        if (step === "select-type") {
             onClose();
             setTimeout(async () => {
                 const result = await findOrCreateDMConversationAction(clickedUser);
                 if (result.success && result.chatRoom?._id) {
                     router.push("/chat/" + result.chatRoom._id);
+                } else {
+                    toast({
+                        title: "Could not start chat",
+                        description: result.message || "Failed to start the direct message",
+                        variant: "destructive",
+                    });
                 }
             }, 0);
             return;
         }
 
-        // Matrix: we route to /chat/[handle] (chat page will resolve/create as needed)
-
-        // Either way: go to /chat/[handle], but close modal first to avoid UI overlay glitches
-        onClose();
-        setTimeout(() => {
-            router.push(`/chat/${clickedUser.handle}`);
-        }, 0);
-        return;
-    }
-
-    if (step === "select-members") {
-        toggleMemberSelection(clickedUser);
-    }
-};
+        if (step === "select-members") {
+            toggleMemberSelection(clickedUser);
+        }
+    };
 
     const toggleMemberSelection = (member: Circle) => {
         if (selectedMembers.find((m) => m._id === member._id)) {
@@ -197,10 +139,7 @@ console.log("Mongo DM Contact DIDs:", Array.from(ids));
                 formData.append("avatar", groupAvatar);
             }
 
-            const result =
-                provider === "mongo"
-                    ? await createMongoGroupChatAction(formData)
-                    : await createGroupChatAction(formData);
+            const result = await createMongoGroupChatAction(formData);
 
             if (result.success && result.roomId) {
                 toast({
@@ -246,7 +185,7 @@ console.log("Mongo DM Contact DIDs:", Array.from(ids));
                             </Button>
                         )}
                         <DialogTitle>
-                            {step === "select-type" && "New Chat"}
+                            {step === "select-type" && "New Message"}
                             {step === "select-members" && "Add Members"}
                             {step === "group-details" && "New Group"}
                         </DialogTitle>
@@ -353,6 +292,10 @@ console.log("Mongo DM Contact DIDs:", Array.from(ids));
                                     {isLoadingUsers ? (
                                         <div className="flex justify-center p-4">
                                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                        </div>
+                                    ) : filteredUsers.length === 0 ? (
+                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                            No contacts yet
                                         </div>
                                     ) : (
                                         filteredUsers.map((u) => {

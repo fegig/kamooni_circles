@@ -15,7 +15,7 @@ import { sdgs } from "@/lib/data/sdgs";
 import { UserPicture } from "../members/user-picture";
 import { CirclePicture } from "../circles/circle-picture";
 import { Button } from "@/components/ui/button";
-import { Edit, Heart, Loader2, MessageCircle, MoreHorizontal, MoreVertical, Trash2, Users, X, MapPin } from "lucide-react"; // Added Users, MapPin
+import { Edit, Heart, Link2, Loader2, MessageCircle, MoreHorizontal, MoreVertical, Repeat2, Trash2, Users, X, MapPin } from "lucide-react"; // Added Users, MapPin
 import { Badge } from "@/components/ui/badge"; // Added Badge import
 import { Carousel, CarouselApi, CarouselContent, CarouselItem } from "@/components/ui/carousel";
 import React, {
@@ -36,6 +36,7 @@ import {
     contentPreviewAtom,
     focusPostAtom,
     imageGalleryAtom,
+    createPostDialogAtom,
     sidePanelContentVisibleAtom,
     userAtom,
     feedPanelDockedAtom,
@@ -63,7 +64,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
-const TextareaAutosize = require("react-textarea-autosize");
+import TextareaAutosize from "react-textarea-autosize";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
     createCommentAction,
@@ -84,7 +85,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { PostForm } from "./post-form";
 import { isAuthorized } from "@/lib/auth/client-auth";
 import { features, LOG_LEVEL_TRACE, logLevel } from "@/lib/data/constants";
-import { MentionsInput, Mention, MentionItem, SuggestionDataItem } from "react-mentions";
+import { SuggestionDataItem } from "react-mentions";
 import { over, set } from "lodash";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -98,6 +99,7 @@ import Image from "next/image"; // Import Next Image
 import { Card, CardContent } from "@/components/ui/card"; // Import Card components
 import Link from "next/link"; // Import Next Link
 import InternalLinkPreview from "./InternalLinkPreview"; // Import InternalLinkPreview
+import SharedPostPreview from "./SharedPostPreview";
 
 export const defaultMentionsInputStyle = {
     control: {
@@ -112,15 +114,19 @@ export const defaultMentionsInputStyle = {
         padding: "0.5rem 1rem", // Same as input
     },
     suggestions: {
+        zIndex: 12000,
         control: {
             backgroundColor: "transparent",
         },
         list: {
-            backgroundColor: "transparent",
-            border: "0px solid rgba(0,0,0,0.15)",
+            backgroundColor: "white",
+            border: "1px solid rgba(0,0,0,0.08)",
             borderRadius: "15px",
             fontSize: 14,
-            overflow: "hidden",
+            boxShadow: "0 12px 32px rgba(15, 23, 42, 0.18)",
+            maxHeight: "240px",
+            overflowY: "auto" as const,
+            zIndex: 80,
         },
         item: {
             backgroundColor: "white",
@@ -162,11 +168,21 @@ export const handleMentionQuery = async (query: string, callback: (data: Suggest
     }
     let suggestions =
         response.circles?.map((circle) => ({
-            id: circle._id,
-            display: circle.name,
-            picture: circle.picture?.url,
+            id: String(circle._id ?? ""),
+            display: String(circle.name ?? ""),
+            picture: circle.picture?.url ? String(circle.picture.url) : undefined,
         })) ?? [];
     callback(suggestions);
+};
+
+export const getMentionsPortalHost = () => {
+    if (typeof document === "undefined") {
+        return undefined;
+    }
+
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const dialogHost = activeElement?.closest('[role="dialog"]');
+    return dialogHost instanceof HTMLElement ? document.body : undefined;
 };
 
 type LikeButtonProps = {
@@ -208,7 +224,7 @@ export const LikeButton = ({ isLiked, onClick }: LikeButtonProps) => {
 
 const MemoizedPostContent = memo(({ content, mentions }: { content: string; mentions?: MentionDisplay[] }) => (
     // Use break-words (overflow-wrap) and min-w-0
-    <div className="formatted min-w-0 break-words pl-4 pr-4 text-lg">
+    <div className="formatted min-w-0 break-words whitespace-pre-wrap pl-4 pr-4 text-lg">
         <RichText content={content} mentions={mentions} />
     </div>
 ));
@@ -230,7 +246,7 @@ const TruncatedPostContent = memo(({ content, mentions, shouldTruncate }: { cont
         : content;
 
     return (
-        <div className="formatted min-w-0 break-words pl-4 pr-4 text-lg">
+        <div className="formatted min-w-0 break-words whitespace-pre-wrap pl-4 pr-4 text-lg">
             <RichText content={displayedContent} mentions={mentions} />
             {needsTruncation && !isExpanded && (
                 <button 
@@ -339,6 +355,7 @@ export const PostItem = ({
     const { toast } = useToast();
     const [, setImageGallery] = useAtom(imageGalleryAtom);
     const [focusPost, setFocusPost] = useAtom(focusPostAtom);
+    const [, setCreatePostDialogState] = useAtom(createPostDialogAtom);
     const [sidePanelContentVisible] = useAtom(sidePanelContentVisibleAtom);
     const [feedPanelDocked, setFeedPanelDocked] = useAtom(feedPanelDockedAtom);
     const router = useRouter();
@@ -384,6 +401,7 @@ export const PostItem = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
     const searchParams = useSearchParams();
+    const isFundingPreviewPost = post.internalPreviewType === "funding" && Boolean(post.internalPreviewUrl);
 
     useEffect(() => {
         if (searchParams?.get("editPostId") === post._id) {
@@ -752,6 +770,45 @@ export const PostItem = ({
         router.push(targetUrl);
     }, [circleHandle, postId, router, setContentPreview, setFeedPanelDocked]);
 
+    const handleSharePost = useCallback(() => {
+        if (!user) {
+            return;
+        }
+
+        setCreatePostDialogState({
+            isOpen: true,
+            circle,
+            feed,
+            sharedPost: post,
+        });
+    }, [user, setCreatePostDialogState, circle, feed, post]);
+
+    const handleCopyPostLink = useCallback(async () => {
+        if (!circleHandle || !postId || typeof window === "undefined") {
+            toast({
+                title: "Failed to copy",
+                description: "This post link is unavailable right now.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        try {
+            const postUrl = `${window.location.origin}/circles/${circleHandle}/post/${postId}`;
+            await navigator.clipboard.writeText(postUrl);
+            toast({
+                title: "Link copied",
+                description: "Post link has been copied to clipboard",
+            });
+        } catch (error) {
+            toast({
+                title: "Failed to copy",
+                description: "An error occurred while copying the link",
+                variant: "destructive",
+            });
+        }
+    }, [circleHandle, postId, toast]);
+
     return (
         // Added min-w-0 and overflow-hidden to allow shrinking and clip content
         <div
@@ -902,7 +959,7 @@ export const PostItem = ({
         </Dialog>
 
         {/* Media carousel (moved to top) */}
-        {!hideContent && post.media && post.media.length > 0 && (
+        {!hideContent && !isFundingPreviewPost && post.media && post.media.length > 0 && (
             <div className="relative h-64 w-full rounded-lg pl-4 pr-4 pt-4">
                 <Carousel setApi={setCarouselApi}>
                     <CarouselContent>
@@ -937,7 +994,7 @@ export const PostItem = ({
         )}
 
         {/* Title */}
-            {!hideContent && post.title && (
+            {!hideContent && !isFundingPreviewPost && post.title && (
                 <div className="pl-4 pr-4 pt-4">
                     <div className="text-xl font-semibold">{post.title}</div>
                 </div>
@@ -953,23 +1010,16 @@ export const PostItem = ({
                     }}
                 >
                     {isAggregateFeed && post.circle && post.circle?._id !== post.author._id ? (
-                        // New layout for aggregate feed posts in a different circle
+                        // Aggregate feed Circle post: show only the Circle avatar
                         <div className="flex items-center gap-4">
-                            <div className="relative h-10 w-10">
-                                <CirclePicture circle={post.circle!} size="40px" openPreview={true} />
-                                <div
-                                    className="absolute bottom-[-4px] right-[-4px] cursor-pointer rounded-full border-2 border-white"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleAuthorClick(post.author);
-                                    }}
-                                >
-                                    <UserPicture
-                                        name={post.author.name}
-                                        picture={post.author.picture?.url}
-                                        size="24px"
-                                    />
-                                </div>
+                            <div
+                                className="h-10 w-10 cursor-pointer"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/circles/${post.circle!.handle}`);
+                                }}
+                            >
+                                <CirclePicture circle={post.circle!} size="40px" />
                             </div>
                             <div className="flex flex-col">
                                 <div
@@ -1150,7 +1200,7 @@ export const PostItem = ({
             )}
 
             {/* Post content - using TruncatedPostContent for See More functionality */}
-            {!hideContent && (
+            {!hideContent && !isFundingPreviewPost && (post.content.trim() || !post.sharedPostId) && (
                 <TruncatedPostContent
                     content={post.content}
                     mentions={post.mentionsDisplay}
@@ -1158,12 +1208,22 @@ export const PostItem = ({
                 />
             )}
 
+            {!hideContent && post.sharedPostId && (
+                <div className="pl-4 pr-4">
+                    <SharedPostPreview post={post.sharedPostData} fallbackText="Original post unavailable." />
+                </div>
+            )}
+
             {/* --- Link Preview --- */}
             {!hideContent && (post.internalPreviewUrl || post.linkPreviewUrl) && (
                 <div className="pl-4 pr-4">
                     {/* Render Internal Preview if URL exists, passing pre-fetched data */}
                     {post.internalPreviewUrl ? (
-                        <InternalLinkPreview url={post.internalPreviewUrl} initialData={post.internalPreviewData} />
+                        <InternalLinkPreview
+                            url={post.internalPreviewUrl}
+                            initialData={post.internalPreviewData}
+                            previewType={post.internalPreviewType}
+                        />
                     ) : // Otherwise, render External Preview if URL exists
                     post.linkPreviewUrl ? (
                         <LinkPreviewCard
@@ -1186,35 +1246,28 @@ export const PostItem = ({
                     }}
                 >
                     {isAggregateFeed && post.circle && post.circle?._id !== post.author._id ? (
-                        // Aggregate feed: Show circle with overlapping author profile pic
+                        // Aggregate feed Circle post: show only the Circle avatar
                         <>
-                            <div className="relative h-10 w-10">
-                                <CirclePicture circle={post.circle!} size="40px" openPreview={true} />
-                                <div
-                                    className="absolute bottom-[-4px] right-[-4px] cursor-pointer rounded-full border-2 border-white"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleAuthorClick(post.author);
-                                    }}
-                                >
-                                    <UserPicture
-                                        name={post.author.name}
-                                        picture={post.author.picture?.url}
-                                        size="24px"
-                                    />
-                                </div>
+                            <div
+                                className="h-10 w-10 cursor-pointer"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/circles/${post.circle!.handle}`);
+                                }}
+                            >
+                                <CirclePicture circle={post.circle!} size="40px" />
                             </div>
                             <div
-                                className="flex cursor-pointer flex-col text-right"
+                                className="flex flex-col text-right"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                 }}
                             >
                                 <div
-                                    className="text-xs font-semibold text-gray-700"
+                                    className="cursor-pointer text-xs font-semibold text-gray-700"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleCircleClick(post.circle!);
+                                        router.push(`/circles/${post.circle!.handle}`);
                                     }}
                                 >
                                     {post.circle!.name}
@@ -1301,6 +1354,34 @@ export const PostItem = ({
                                 />
                             ))}
                         </div>
+                    )}
+                    {user && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs text-gray-500 hover:text-gray-700"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleSharePost();
+                            }}
+                        >
+                            <Repeat2 className="mr-1 h-4 w-4" />
+                            Share
+                        </Button>
+                    )}
+                    {circleHandle && postId && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs text-gray-500 hover:text-gray-700"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                void handleCopyPostLink();
+                            }}
+                        >
+                            <Link2 className="mr-1 h-4 w-4" />
+                            Copy link
+                        </Button>
                     )}
                 </div>
 
@@ -1443,24 +1524,16 @@ export const PostItem = ({
                 {/* Comment input box */}
                 {user && canComment && !disableComments && (
                     <div className="mt-2 flex items-start gap-2">
-                        <MentionsInput
+                        {/* TODO: Mentions intentionally disabled for launch. Rebuild later using the working chat mention path as the reference. */}
+                        <TextareaAutosize
                             value={newCommentContent}
-                            onChange={(e) => setNewCommentContent(e.target.value)}
+                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewCommentContent(e.target.value)}
                             onKeyDown={handleCommentKeyDown}
                             placeholder="Write a comment..."
-                            className="flex-grow rounded-[20px] bg-gray-100"
-                            style={defaultMentionsInputStyle}
-                        >
-                            <Mention
-                                trigger="@"
-                                data={handleMentionQuery}
-                                style={defaultMentionStyle}
-                                displayTransform={(id, display) => `${display}`}
-                                renderSuggestion={renderCircleSuggestion}
-                                markup="[__display__](/circles/__id__)"
-                                // regex={/\[([^\]]+)\]\(\/circles\/([^)]+)\)/} // TODO probably not necessary let's see
-                            />
-                        </MentionsInput>
+                            className="w-full resize-none rounded-[20px] bg-gray-100 p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            minRows={1}
+                            maxRows={6}
+                        />
 
                         {isMobile && (
                             <button onClick={handleAddComment} className="mt-1 text-blue-500">
@@ -1521,6 +1594,7 @@ const CommentItem = ({
 
     const isAuthor = user && comment.createdBy === user?.did;
     const canModerate = isAuthorized(user, circle, features.feed.moderate);
+    const canReply = isAuthorized(user, circle, features.feed.comment);
     const formattedDate = getPublishTime(comment.createdAt);
 
     const replies = useMemo<CommentDisplay[]>(
@@ -1588,11 +1662,12 @@ const CommentItem = ({
     };
 
     const handleReplyClick = () => {
+        if (!canReply || !user) return;
         setShowReplyInput(!showReplyInput);
     };
 
     const handleAddReply = () => {
-        if (!newReplyContent.trim()) return;
+        if (!canReply || !user || !newReplyContent.trim() || isPending) return;
 
         const tempComment: CommentDisplay = {
             _id: "temp-reply", // Temporary ID to distinguish it
@@ -1627,6 +1702,13 @@ const CommentItem = ({
             }
         });
     };
+
+    useEffect(() => {
+        if (!canReply && showReplyInput) {
+            setShowReplyInput(false);
+            setNewReplyContent("");
+        }
+    }, [canReply, showReplyInput]);
 
     const handleReplyKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -1747,24 +1829,17 @@ const CommentItem = ({
                                 </div>
                                 {isEditing ? (
                                     <>
-                                        <MentionsInput
+                                        <TextareaAutosize
                                             value={editContent}
-                                            onChange={(e) => setEditContent(e.target.value)}
+                                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                                                setEditContent(e.target.value)
+                                            }
                                             onKeyDown={handleEditKeyDown}
                                             placeholder="Write a comment..."
-                                            className="flex-grow rounded-[20px] bg-gray-200"
-                                            style={defaultMentionsInputStyle}
-                                        >
-                                            <Mention
-                                                trigger="@"
-                                                data={handleMentionQuery}
-                                                style={defaultMentionStyle}
-                                                displayTransform={(id, display) => `${display}`}
-                                                renderSuggestion={renderCircleSuggestion}
-                                                markup="[__display__](/circles/__id__)"
-                                                // regex={/\[([^\]]+)\]\(\/circles\/([^)]+)\)/} // TODO probably not necessary let's see
-                                            />
-                                        </MentionsInput>
+                                            className="w-full resize-none rounded-[20px] bg-gray-200 p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            minRows={1}
+                                            maxRows={6}
+                                        />
                                     </>
                                 ) : (
                                     <MemoizedCommentContent
@@ -1794,9 +1869,11 @@ const CommentItem = ({
                                         Like
                                     </div>
                                 )}
-                                <div onClick={handleReplyClick} className="cursor-pointer">
-                                    Reply
-                                </div>
+                                {canReply && user && (
+                                    <div onClick={handleReplyClick} className="cursor-pointer">
+                                        Reply
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1836,7 +1913,7 @@ const CommentItem = ({
                         </div>
                     )}
 
-                    {showReplyInput && (
+                    {showReplyInput && canReply && user && (
                         <div className="mt-2 flex flex-col">
                             <div className="mb-1 text-xs text-gray-500">Replying to {comment.author.name}</div>
                             <TextareaAutosize
