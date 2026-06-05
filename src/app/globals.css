@@ -1,0 +1,610 @@
+@import "tailwindcss";
+@import "tailwind-animations";
+@import "@flaticon/flaticon-uicons/css/all/all";
+
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+	/* Breakpoint */
+	--breakpoint-2xl: 87.5rem;
+
+	/* Font families */
+	--font-sans: var(--font-plus-jakarta-sans), sans-serif;
+	--font-heading: var(--font-sora), sans-serif;
+	--font-serif: "Noto Serif", serif;
+
+	/* Colors - semantic (reference :root vars) */
+	--color-border: hsl(var(--border));
+	--color-input: hsl(var(--input));
+	--color-ring: hsl(var(--ring));
+	--color-background: hsl(var(--background));
+	--color-foreground: hsl(var(--foreground));
+	--color-primary: hsl(var(--primary));
+	--color-primary-foreground: hsl(var(--primary-foreground));
+	--color-primary-light: hsl(var(--primary-light));
+	--color-secondary: hsl(var(--secondary));
+	--color-secondary-foreground: hsl(var(--secondary-foreground));
+	--color-destructive: hsl(var(--destructive));
+	--color-destructive-foreground: hsl(var(--destructive-foreground));
+	--color-muted: hsl(var(--muted));
+	--color-muted-foreground: hsl(var(--muted-foreground));
+	--color-accent: hsl(var(--accent));
+	--color-accent-foreground: hsl(var(--accent-foreground));
+	--color-popover: hsl(var(--popover));
+	--color-popover-foreground: hsl(var(--popover-foreground));
+	--color-card: hsl(var(--card));
+	--color-card-foreground: hsl(var(--card-foreground));
+
+	/* Kamooni brand colors */
+	--color-kam-yellow: #fdcc5f;
+	--color-kam-red: #e57373;
+	--color-kam-green: #819977;
+	--color-kam-beige: #e0d6b3;
+	--color-kam-gray: #4b5563;
+	--color-kam-gray-light: #eeeede;
+	--color-kam-gray-medium: #d1d5db;
+	--color-kam-gray-dark: #4b5563;
+	--color-kam-hero-yellow: #fdcc5f;
+	--color-kam-alt-bg: #f4efb7;
+	--color-kam-postcard-green: #5c7a52;
+	--color-kam-button-red-orange: #f47566;
+    --color-kam-notice-red: #c84521;
+
+	/* Border radius */
+	--radius-lg: var(--radius);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-sm: calc(var(--radius) - 4px);
+
+	/* Custom animations */
+	--animate-accordion-down: accordion-down 0.2s ease-out;
+	--animate-accordion-up: accordion-up 0.2s ease-out;
+	--animate-slide-in: slide-in 0.5s ease-in-out;
+	--animate-slide-up: slide-up 0.5s ease-in-out;
+	--animate-wiggle: wiggle 4s ease-in-out infinite;
+	--animate-float: float 3s ease-in-out infinite;
+	--animate-pulse-slow: pulse 3s ease-in-out infinite;
+	--animate-ripple: ripple 4s cubic-bezier(0.65, 0, 0.34, 1) infinite;
+	--animate-ripple-delay: ripple 4s cubic-bezier(0.65, 0, 0.34, 1) infinite 1.5s;
+	--animate-ripple-delay-2: ripple 4s cubic-bezier(0.65, 0, 0.34, 1) infinite 3s;
+
+	@keyframes accordion-down {
+		from { height: 0; }
+		to { height: var(--radix-accordion-content-height); }
+	}
+	@keyframes accordion-up {
+		from { height: var(--radix-accordion-content-height); }
+		to { height: 0; }
+	}
+	@keyframes slide-in {
+		0% { opacity: 0; transform: translateX(75%); }
+		100% { opacity: 1; transform: translateX(0); }
+	}
+	@keyframes slide-up {
+		0% { transform: translateY(0); }
+		100% { transform: translateY(-36px); }
+	}
+	@keyframes wiggle {
+		0%, 100% { transform: rotate(-8deg); }
+		50% { transform: rotate(8deg); }
+	}
+	@keyframes float {
+		0%, 100% { transform: translateY(0); }
+		50% { transform: translateY(-4px); }
+	}
+	@keyframes pulse {
+		0% { transform: scale(0.85); box-shadow: 0 0 0 0 rgba(178, 27, 186, 0.7); }
+		96% { transform: scale(0.9); box-shadow: 0 0 0 10px rgba(0, 0, 0, 0); }
+		100% { transform: scale(0.85); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+	}
+	@keyframes ripple {
+		0% { opacity: 1; transform: scale3d(0.75, 0.75, 1); }
+		100% { opacity: 0; transform: scale3d(1.35, 1.35, 1); }
+	}
+}
+
+@utility container {
+	margin-inline: auto;
+	padding-inline: 2rem;
+	max-width: 1400px;
+}
+
+@utility clip-hexagon {
+	clip-path: polygon(50% 0%, 90% 25%, 90% 75%, 50% 100%, 10% 75%, 10% 25%);
+}
+
+@utility clip-pennant {
+	clip-path: polygon(10% 10%, 90% 50%, 10% 90%);
+}
+
+@utility clip-cause-80 {
+	clip-path: path('M 0,12 q 40,-20 80,0 q 0,40 -40,68 q -40,-24 -40,-68 z');
+}
+
+@utility clip-cause-90 {
+	clip-path: path('M 0,13.5 q 45,-22.5 90,0 q 0,45 -45,76.5 q -45,-27 -45,-76.5 z');
+}
+
+@utility clip-cause-100 {
+	clip-path: path('M 0,15 q 50,-25 100,0 q 0,50 -50,85 q -50,-30 -50,-85 z');
+}
+
+@utility clip-flag-80 {
+	clip-path: path('M 0 8 Q 20 0, 40 8 T 80 8 L 80 72 Q 60 80, 40 72 T 0 72 Z');
+}
+
+@utility clip-flag-200 {
+	clip-path: path('M 0 10% Q 25% 0%, 50% 10% T 100% 10% L 100% 90% Q 75% 100%, 50% 90% T 0 90% Z');
+}
+
+:root {
+    --foreground-rgb: 0, 0, 0;
+    --background-start-rgb: 214, 219, 220;
+    --background-end-rgb: 255, 255, 255;
+    --link-rgb: 33, 100, 205;
+    --link-hover-rgb: 21, 67, 139;
+
+    --text-size-80: var(--text-xs);
+    --text-size-90: var(--text-sm);
+    --text-size-100: var(--text-base);
+    --text-size-200: var(--text-lg);
+    --text-size-300: var(--text-xl);
+    --text-size-400: var(--text-2xl);
+    --text-size-500: var(--text-3xl);
+    --text-size-600: var(--text-4xl);
+    --text-size-700: var(--text-5xl);
+    --text-size-800: var(--text-6xl);
+    --text-size-900: var(--text-7xl);
+    --text-size-1000: var(--text-8xl);
+    --text-size-1100: var(--text-9xl);
+}
+
+body {
+    color: rgb(var(--foreground-rgb));
+}
+
+/* fixes issue with shadcn/ui adding padding to body  */
+body[data-scroll-locked] {
+    min-width: 100%;
+}
+
+.font-bebas {
+    font-family: var(--font-sora), sans-serif;
+    letter-spacing: 0.05em;
+}
+
+.font-avenir {
+    font-family: var(--font-plus-jakarta-sans), sans-serif;
+}
+
+html {
+    font-family: var(--font-plus-jakarta-sans), sans-serif;
+    overflow-y: scroll;
+}
+
+html,
+body {
+    overflow-x: hidden;
+}
+
+.stable-scrollbar {
+    scrollbar-gutter: stable both-edges;
+}
+
+.heading,
+.header {
+    font-family: var(--font-sora), sans-serif;
+}
+
+.formatted h1:first-child {
+    margin-top: 0px;
+}
+.formatted h2:first-child {
+    margin-top: 0px;
+}
+.formatted h3:first-child {
+    margin-top: 0px;
+}
+.formatted h4:first-child {
+    margin-top: 0px;
+}
+.formatted h5:first-child {
+    margin-top: 0px;
+}
+.formatted h6:first-child {
+    margin-top: 0px;
+}
+.formatted p:first-child {
+    margin-top: 0px;
+}
+
+.formatted h1:last-child {
+    margin-bottom: 0px;
+}
+.formatted h2:last-child {
+    margin-bottom: 0px;
+}
+.formatted h3:last-child {
+    margin-bottom: 0px;
+}
+.formatted h4:last-child {
+    margin-bottom: 0px;
+}
+.formatted h5:last-child {
+    margin-bottom: 0px;
+}
+.formatted h6:last-child {
+    margin-bottom: 0px;
+}
+.formatted p:last-child {
+    margin-bottom: 0px;
+}
+
+.formatted p {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+.formatted h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    margin-top: 2.25rem;
+    margin-bottom: 1rem;
+}
+
+.formatted h6,
+.h6 {
+    font-size: var(--text-size-200);
+}
+.formatted h5,
+.h5 {
+    font-size: var(--text-size-200);
+}
+.formatted h4,
+.h4 {
+    font-size: var(--text-size-200);
+}
+.formatted h3,
+.h3 {
+    font-size: var(--text-size-200);
+}
+.formatted h2,
+.h2 {
+    font-size: var(--text-size-300);
+}
+.formatted h1,
+.h1 {
+    font-size: var(--text-size-400);
+}
+
+p {
+    font-family: var(--font-plus-jakarta-sans), sans-serif;
+    /* margin-top: 1rem;
+    margin-bottom: 1rem; */
+}
+
+
+
+.extraBold {
+    font-weight: 700;
+}
+
+
+
+@layer utilities {
+    .text-balance {
+        text-wrap: balance;
+    }
+}
+
+/* Custom scrollbar styles - Hide Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+    display: none !important; /* Force hide scrollbar for WebKit browsers */
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.custom-scrollbar {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+}
+
+/* Keep hover effect for Firefox in case 'none' isn't fully supported or for future use */
+/* .custom-scrollbar:hover {
+    scrollbar-color: hsl(var(--border)) transparent;
+} */
+
+/* shadcn/ui */
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 222.2 84% 4.9%;
+
+        --card: 0 0% 100%;
+        --card-foreground: 222.2 84% 4.9%;
+
+        --popover: 0 0% 100%;
+        --popover-foreground: 222.2 84% 4.9%;
+
+        /* --primary: 22 52% 65%; */
+        /* --primary: 0 84% 60%; */
+
+        /* --primary: 22 72% 65%; */
+        /* --primary: 210 71% 65%; */
+        /* --primary: 25 71% 65%; */
+        /* #66a5e5 */
+
+        /* Primary: kam-hero-yellow #fdcc5f */
+        --primary: 45 98% 68%;
+        --primary-foreground: 0 0% 10%;
+
+        /* Button color: kam-button-red-orange #f47566 */
+        --primary-light: 215.3 100% 70%;
+
+        --secondary: 210 40% 96.1%;
+        --secondary-foreground: 222.2 47.4% 11.2%;
+
+        --muted: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 46.9%;
+
+        --accent: 210 40% 96.1%;
+        --accent-foreground: 222.2 47.4% 11.2%;
+
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 210 40% 98%;
+
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 91.4%;
+        --ring: 222.2 84% 4.9%;
+
+        --radius: 0.55rem;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+a.textLink {
+    color: rgb(var(--link-rgb));
+}
+
+a.textLink:hover {
+    color: rgb(var(--link-hover-rgb));
+}
+
+/* Mapbox */
+.mapboxgl-ctrl-bottom-right {
+    position: absolute;
+    left: 10px;
+    bottom: 2px;
+    font-size: 14px;
+    color: #93949d;
+}
+
+/* Rich text list styles */
+.prose ul,
+.formatted ul {
+    list-style: disc;
+    padding-left: 1.25rem; /* indent bullets */
+    margin-left: 0;
+}
+.prose ol,
+.formatted ol {
+    list-style: decimal;
+    padding-left: 1.25rem; /* indent numbers */
+    margin-left: 0;
+}
+.prose li,
+.formatted li {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+.prose ul ul,
+.formatted ul ul {
+    list-style-type: circle;
+}
+.prose ul ul ul,
+.formatted ul ul ul {
+    list-style-type: square;
+}
+
+/* React Input Tags */
+
+div.ReactTags__tags {
+    position: relative;
+}
+
+div.ReactTags__tagInput {
+    width: 100%;
+    border-radius: 2px;
+    display: inline-block;
+    margin-bottom: 10px;
+}
+
+input.ReactTags__tagInputField {
+    height: 2.5rem;
+    --tw-space-y-reverse: 0;
+    --tw-ring-offset-color: hsl(var(--background));
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    background-color: hsl(var(--background));
+    border-color: hsl(var(--input));
+    border-width: 1px;
+    border-radius: calc(var(--radius) - 2px);
+    width: 100%;
+    display: flex;
+}
+
+input.ReactTags__tagInputField:hover {
+    /* border-color: var(--chakra-colors-gray-300); */
+}
+
+/* input.ReactTags__tagInputField:focus {
+    border: 1px solid #3182ce;
+} */
+
+div.ReactTags__selected span.ReactTags__tag {
+    border: 0px solid #ddd;
+    border-color: #333;
+    background: #9cb5f7;
+    font-size: 14px;
+    /* display: inline-block; */
+    padding: 2px 10px 2px 10px;
+    margin: 0px 2px 4px 2px;
+    cursor: move;
+    border-radius: 20px;
+    color: white;
+    display: inline-flex;
+}
+div.ReactTags__selected .ReactTags__remove {
+    color: white;
+    margin-left: 5px;
+    cursor: pointer;
+}
+
+div.ReactTags__suggestions {
+    position: absolute;
+}
+div.ReactTags__suggestions ul {
+    list-style-type: none;
+    box-shadow: 0.05em 0.01em 0.5em rgba(0, 0, 0, 0.2);
+    background: white;
+    width: 200px;
+}
+div.ReactTags__suggestions li {
+    border-bottom: 1px solid #ddd;
+    padding: 5px 10px;
+    margin: 0;
+}
+div.ReactTags__suggestions li mark {
+    text-decoration: underline;
+    background: none;
+    font-weight: 600;
+}
+div.ReactTags__suggestions ul li.ReactTags__activeSuggestion {
+    background: #b7cfe0;
+    cursor: pointer;
+}
+
+.embla {
+    overflow: hidden;
+}
+.embla__container {
+    display: flex;
+}
+.embla__slide {
+    flex: 0 0 100%;
+    min-width: 0;
+}
+
+/* react-mentions */
+.flex-grow__suggestions {
+    background-color: transparent !important;
+}
+
+/* Pin effect */
+.pin-effect::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0) 60%);
+    border-radius: 50%;
+    z-index: 1;
+}
+
+.pin-effect {
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 8px 15px rgba(0, 0, 0, 0.2);
+    position: relative;
+    overflow: hidden;
+    border-radius: 50%;
+}
+
+/* Scrollbar styling: keep gutter stable across browsers, subtly emphasize on hover */
+.scrollbar-hover {
+    scrollbar-gutter: stable both-edges;
+    /* Firefox */
+    scrollbar-width: thin;
+}
+.scrollbar-hover:hover {
+    scrollbar-width: thin;
+}
+/* WebKit */
+.scrollbar-hover::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.scrollbar-hover::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+}
+.scrollbar-hover:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.3);
+}
+.scrollbar-hover::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* FullCalendar: highlight ongoing events */
+.fc .ongoing-event {
+    border: 2px solid #ef4444 !important; /* red-500 border */
+    border-radius: 6px;
+    background-color: rgba(239, 68, 68, 0.08); /* red-500 @ ~8% */
+}
+.fc .ongoing-event .fc-event-main {
+    border-left: 4px solid #ef4444; /* accent on the left edge */
+    padding-left: 2px;
+}
+.fc .fc-list .ongoing-event .fc-list-event-title {
+    border-left: 4px solid #ef4444;
+    padding-left: 6px;
+}
+
+/* FullCalendar: truncate long event titles in month and week views */
+.fc .fc-daygrid-event .fc-event-title,
+.fc .fc-timegrid-event .fc-event-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Ensure container does not allow overflow for timegrid events */
+.fc .fc-timegrid-event .fc-event-main,
+.fc .fc-timegrid-event .fc-event-main-frame {
+    overflow: hidden;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+
+button{
+    cursor: pointer;
+}
+
+
+i{
+    @apply flex justify-center items-center;
+}

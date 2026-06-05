@@ -1,0 +1,76 @@
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    resolver_timeout 5s;
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+server {
+    listen 80;
+    server_name ${CIRCLES_DOMAIN} www.${CIRCLES_DOMAIN};
+
+    # Allow Let's Encrypt HTTP challenge
+    location /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        allow all;
+    }
+
+    # IMPORTANT: Serve storage over HTTP (for internal Next.js image optimizer fetches)
+    location /storage/ {
+        proxy_pass http://minio:9000/circles/;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Redirect everything else to HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+    server {
+        listen 443 ssl;
+        server_name ${CIRCLES_DOMAIN} www.${CIRCLES_DOMAIN};
+
+        ssl_certificate /etc/letsencrypt/live/${CIRCLES_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${CIRCLES_DOMAIN}/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+
+        client_max_body_size    500m;
+
+        location / {
+            proxy_pass http://${CIRCLES_HOST}:${CIRCLES_PORT};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+
+        location /storage/ {
+            proxy_pass http://minio:9000/circles/;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location /_matrix/ {
+            proxy_pass http://synapse:8008;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            client_max_body_size 10m;
+        }
+    }
+}

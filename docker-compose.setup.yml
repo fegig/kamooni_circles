@@ -1,0 +1,20 @@
+services:
+    synapse_setup:
+        image: matrixdotorg/synapse:v1.63.0
+        env_file:
+            - .env
+        environment:
+            - SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN}
+            - SYNAPSE_REPORT_STATS=yes
+        volumes:
+            - synapse_data:/data
+        networks:
+            - webnet
+        profiles:
+            - setup
+
+networks:
+    webnet:
+
+volumes:
+    synapse_data:

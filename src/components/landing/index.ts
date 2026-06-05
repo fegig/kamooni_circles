@@ -1,0 +1,10 @@
+export { LandingHeader } from "./landing-header";
+export { LandingHero } from "./landing-hero";
+export { LandingValueProp } from "./landing-value-prop";
+export { LandingFeatures } from "./landing-features";
+export { LandingHowItWorks } from "./landing-how-it-works";
+export { LandingVideo } from "./landing-video";
+export { LandingEthics } from "./landing-ethics";
+export { LandingFaq } from "./landing-faq";
+export { LandingFooter } from "./landing-footer";
+export { FEATURES, HOW_IT_WORKS, FAQ_ITEMS } from "./landing-data";
